@@ -126,7 +126,7 @@ class CosineSamplerBackwardBackward(torch.autograd.Function):
 
 if __name__ == '__main__':
     torch.manual_seed(51)
-    torch.cuda.manual_seed(51)
+    torch.cuda.manual_seed(51) #51
     
     off= True
     numb = 100000
@@ -136,19 +136,20 @@ if __name__ == '__main__':
     padding_mode = 'zeros' # border, reflection
     align_corners = True
 
-    cells = torch.nn.Parameter(torch.rand([n_cell, cell_dim, 16, 16], device = 'cuda')).requires_grad_(True)
-    x = (torch.rand((n_cell, 1,numb, 1), dtype = torch.float32)).requires_grad_(True)
-    y = (torch.rand((n_cell, 1,numb, 1), dtype = torch.float32)).requires_grad_(True)
+    cells = torch.nn.Parameter(torch.rand([n_cell, cell_dim, 16, 16], device = 'cuda'))
+    cells = cells.data.uniform_(-1e-05, 1e-05).requires_grad_(True)
+    x = (torch.rand((numb, 1), dtype = torch.float32)*2-1).requires_grad_(True)
+    y = (torch.rand((numb, 1), dtype = torch.float32)).requires_grad_(True)
 
-    x = x*2-1
-    y = y*2-1
+    # x = x
+    # y = y
 
     x = x.to('cuda')
     y = y.to('cuda')
 
-    grid = torch.cat([y, x], -1)
+    grid = torch.cat([y*2-1, x], -1)
     # with torch.no_grad():
-    # grid = grid.unsqueeze(0).unsqueeze(0).repeat([n_cell, 1, 1, 1])
+    grid = grid.unsqueeze(0).unsqueeze(0).repeat([n_cell, 1, 1, 1])
     # grid = grid.unsqueeze(0).unsqueeze(0).repeat([n_cell, 1, 1, 1])
 
     # grid = torch.rand((n_cell, 1, numb, 2), dtype = torch.float32).requires_grad_(True).to('cuda')
@@ -549,7 +550,7 @@ if __name__ == '__main__':
     # u_xx_cell/=96; u_yy_cell/=96
 
     import numpy as np    
-    # print(np.testing.assert_allclose(u2_xx.reshape(-1).detach().cpu().numpy(), u_xx.reshape(-1).detach().cpu().numpy(), rtol=1e-2, atol=0))
+    # print(np.testing.assert_allclose(u2_xx_cell.reshape(-1).detach().cpu().numpy(), u_xx_cell.reshape(-1).detach().cpu().numpy(), rtol=1e-2, atol=0))
     # print(np.testing.assert_allclose(u2_yy_cell.reshape(-1).detach().cpu().numpy(), u_yy_cell.reshape(-1).detach().cpu().numpy(), rtol=4e-4, atol=0))
     # print(np.testing.assert_allclose(u2_x.reshape(-1).detach().cpu().numpy(), u_x.reshape(-1).detach().cpu().numpy(), rtol=1.5e-1, atol=0))
     # print(np.testing.assert_allclose(u2_y.reshape(-1).detach().cpu().numpy(), u_y.reshape(-1).detach().cpu().numpy(), rtol=8e-2, atol=0))
@@ -559,36 +560,39 @@ if __name__ == '__main__':
     # print(u_yy.reshape(-1)[6150152], u2_yy.reshape(-1)[6150152])
     # exit(1)
     
-    print('val == val2: {}, max_error: {} at {}'.format(((val.reshape(-1)-val2.reshape(-1)).abs()<1e-4).sum()==(number),(val.reshape(-1)-val2.reshape(-1)).abs().max(),(val.reshape(-1)-val2.reshape(-1)).abs().argmax()))
-    print('u_cell == u2_cell: {}, max_error: {} at {}'.format(((u_cell.reshape(-1)-u2_cell.reshape(-1)).abs()<1e-4).sum()==(number),(u_cell.reshape(-1)-u2_cell.reshape(-1)).abs().max(),(u_cell.reshape(-1)-u2_cell.reshape(-1)).abs().argmax()))
-    print('u_x == u2_x: {}, max_error: {} at {}'.format(((u_x.reshape(-1)-u2_x.reshape(-1)).abs()<1e-4).sum()==(number),(u_x.reshape(-1)-u2_x.reshape(-1)).abs().max(),(u_x.reshape(-1)-u2_x.reshape(-1)).abs().argmax()))
-    print('u_y == u2_y: {}, max_error: {} at {}'.format(((u_y.reshape(-1)-u2_y.reshape(-1)).abs()<1e-4).sum()==(number),(u_y.reshape(-1)-u2_y.reshape(-1)).abs().max(),(u_y.reshape(-1)-u2_y.reshape(-1)).abs().argmax()))
+    print('val == val2, max_error: {} at {}'.format((val.reshape(-1)-val2.reshape(-1)).abs().max(),(val.reshape(-1)-val2.reshape(-1)).abs().argmax()))
+    print('u_cell == u2_cell, max_error: {} at {}'.format((u_cell.reshape(-1)-u2_cell.reshape(-1)).abs().max(),(u_cell.reshape(-1)-u2_cell.reshape(-1)).abs().argmax()))
+    print('u_x == u2_x, max_error: {} at {}'.format((u_x.reshape(-1)-u2_x.reshape(-1)).abs().max(),(u_x.reshape(-1)-u2_x.reshape(-1)).abs().argmax()))
+    print('u_y == u2_y, max_error: {} at {}'.format((u_y.reshape(-1)-u2_y.reshape(-1)).abs().max(),(u_y.reshape(-1)-u2_y.reshape(-1)).abs().argmax()))
 
-    print('u_xx == u2_xx: {}, max_error: {} at {}'.format(((u_xx.reshape(-1)-u2_xx.reshape(-1)).abs()<1e-4).sum()==(number),(u_xx.reshape(-1)-u2_xx.reshape(-1)).abs().max(),(u_xx.reshape(-1)-u2_xx.reshape(-1)).abs().argmax()))
-    print('u_yy == u2_yy: {}, may_error: {} at {}'.format(((u_yy.reshape(-1)-u2_yy.reshape(-1)).abs()<1e-4).sum()==(number),(u_yy.reshape(-1)-u2_yy.reshape(-1)).abs().max(),(u_yy.reshape(-1)-u2_yy.reshape(-1)).abs().argmax()))
-    print('u_cell_x == u2_cell_x: {}, max_error: {} at {}'.format(((u_cell_x.reshape(-1)-u2_cell_x.reshape(-1)).abs()<1e-4).sum()==(number),(u_cell_x.reshape(-1)-u2_cell_x.reshape(-1)).abs().max(),(u_cell_x.reshape(-1)-u2_cell_x.reshape(-1)).abs().argmax()))
-    print('u_cell_y == u2_cell_y: {}, max_error: {} at {}'.format(((u_cell_y.reshape(-1)-u2_cell_y.reshape(-1)).abs()<1e-4).sum()==(number),(u_cell_y.reshape(-1)-u2_cell_y.reshape(-1)).abs().max(),(u_cell_y.reshape(-1)-u2_cell_y.reshape(-1)).abs().argmax()))
+    print('u_xx == u2_xx, max_error: {} at {}'.format((u_xx.reshape(-1)-u2_xx.reshape(-1)).abs().max(),(u_xx.reshape(-1)-u2_xx.reshape(-1)).abs().argmax()))
+    print('u_yy == u2_yy, may_error: {} at {}'.format((u_yy.reshape(-1)-u2_yy.reshape(-1)).abs().max(),(u_yy.reshape(-1)-u2_yy.reshape(-1)).abs().argmax()))
+    print('u_cell_x == u2_cell_x, max_error: {} at {}'.format((u_cell_x.reshape(-1)-u2_cell_x.reshape(-1)).abs().max(),(u_cell_x.reshape(-1)-u2_cell_x.reshape(-1)).abs().argmax()))
+    print('u_cell_y == u2_cell_y, max_error: {} at {}'.format((u_cell_y.reshape(-1)-u2_cell_y.reshape(-1)).abs().max(),(u_cell_y.reshape(-1)-u2_cell_y.reshape(-1)).abs().argmax()))
     ''' ok before here'''
-    print('u_x_cell == u2_x_cell: {}, max_error: {} at {}'.format(((u_x_cell.reshape(-1)-u2_x_cell.reshape(-1)).abs()<1e-4).sum()==(number),(u_x_cell.reshape(-1)-u2_x_cell.reshape(-1)).abs().max(),(u_x_cell.reshape(-1)-u2_x_cell.reshape(-1)).abs().argmax()))
-    print('u_y_cell == u2_y_cell: {}, max_error: {} at {}'.format(((u_y_cell.reshape(-1)-u2_y_cell.reshape(-1)).abs()<1e-4).sum()==(number),(u_y_cell.reshape(-1)-u2_y_cell.reshape(-1)).abs().max(),(u_y_cell.reshape(-1)-u2_y_cell.reshape(-1)).abs().argmax()))
-    print('u_x_y == u2_x_y: {}, max_error: {} at {}'.format(((u_x_y.reshape(-1)-u2_x_y.reshape(-1)).abs()<1e-4).sum()==(number),(u_x_y.reshape(-1)-u2_x_y.reshape(-1)).abs().max(),(u_x_y.reshape(-1)-u2_x_y.reshape(-1)).abs().argmax()))
-    print('u_y_x == u2_y_x: {}, max_error: {} at {}'.format(((u_y_x.reshape(-1)-u2_y_x.reshape(-1)).abs()<1e-4).sum()==(number),(u_y_x.reshape(-1)-u2_y_x.reshape(-1)).abs().max(),(u_y_x.reshape(-1)-u2_y_x.reshape(-1)).abs().argmax()))
+    print('u_x_cell == u2_x_cell, max_error: {} at {}'.format((u_x_cell.reshape(-1)-u2_x_cell.reshape(-1)).abs().max(),(u_x_cell.reshape(-1)-u2_x_cell.reshape(-1)).abs().argmax()))
+    print('u_y_cell == u2_y_cell, max_error: {} at {}'.format((u_y_cell.reshape(-1)-u2_y_cell.reshape(-1)).abs().max(),(u_y_cell.reshape(-1)-u2_y_cell.reshape(-1)).abs().argmax()))
+    print('u_x_y == u2_x_y, max_error: {} at {}'.format((u_x_y.reshape(-1)-u2_x_y.reshape(-1)).abs().max(),(u_x_y.reshape(-1)-u2_x_y.reshape(-1)).abs().argmax()))
+    print('u_y_x == u2_y_x, max_error: {} at {}'.format((u_y_x.reshape(-1)-u2_y_x.reshape(-1)).abs().max(),(u_y_x.reshape(-1)-u2_y_x.reshape(-1)).abs().argmax()))
 
-    # print('u_grid == u2_grid: {}, max_error: {} at {}'.format(((u_grid.reshape(-1)-u2_grid.reshape(-1)).abs()<1e-4).sum()==(number),(u_grid.reshape(-1)-u2_grid.reshape(-1)).abs().max(),(u_grid.reshape(-1)-u2_grid.reshape(-1)).abs().argmax()))
-    # print('u_grid_grid == u2_grid_grid: {}, max_error: {} at {}'.format(((u_grid_grid.reshape(-1)-u2_grid_grid.reshape(-1)).abs()<1e-4).sum()==(number),(u_grid_grid.reshape(-1)-u2_grid_grid.reshape(-1)).abs().max(),(u_grid_grid.reshape(-1)-u2_grid_grid.reshape(-1)).abs().argmax()))
-    # print('u_input_grid == u2_input_grid: {}, max_error: {} at {}'.format(((u_input_grid.reshape(-1)-u2_input_grid.reshape(-1)).abs()<1e-4).sum()==(number),(u_input_grid.reshape(-1)-u2_input_grid.reshape(-1)).abs().max(),(u_input_grid.reshape(-1)-u2_input_grid.reshape(-1)).abs().argmax()))
-    # print('u_grid_input == u2_grid_input: {}, max_error: {} at {}'.format(((u_grid_input.reshape(-1)-u2_grid_input.reshape(-1)).abs()<1e-4).sum()==(number),(u_grid_input.reshape(-1)-u2_grid_input.reshape(-1)).abs().max(),(u_grid_input.reshape(-1)-u2_grid_input.reshape(-1)).abs().argmax()))
+    # print('u_grid == u2_grid, max_error: {} at {}'.format(((u_grid.reshape(-1)-u2_grid.reshape(-1)).abs()<1e-4).sum()==(number),(u_grid.reshape(-1)-u2_grid.reshape(-1)).abs().max(),(u_grid.reshape(-1)-u2_grid.reshape(-1)).abs().argmax()))
+    # print('u_grid_grid == u2_grid_grid, max_error: {} at {}'.format(((u_grid_grid.reshape(-1)-u2_grid_grid.reshape(-1)).abs()<1e-4).sum()==(number),(u_grid_grid.reshape(-1)-u2_grid_grid.reshape(-1)).abs().max(),(u_grid_grid.reshape(-1)-u2_grid_grid.reshape(-1)).abs().argmax()))
+    # print('u_input_grid == u2_input_grid, max_error: {} at {}'.format(((u_input_grid.reshape(-1)-u2_input_grid.reshape(-1)).abs()<1e-4).sum()==(number),(u_input_grid.reshape(-1)-u2_input_grid.reshape(-1)).abs().max(),(u_input_grid.reshape(-1)-u2_input_grid.reshape(-1)).abs().argmax()))
+    # print('u_grid_input == u2_grid_input, max_error: {} at {}'.format(((u_grid_input.reshape(-1)-u2_grid_input.reshape(-1)).abs()<1e-4).sum()==(number),(u_grid_input.reshape(-1)-u2_grid_input.reshape(-1)).abs().max(),(u_grid_input.reshape(-1)-u2_grid_input.reshape(-1)).abs().argmax()))
 
-    print('u_xx_cell == u2_xx_cell: {}, max_error: {} at {}'.format(((u_xx_cell.reshape(-1)-u2_xx_cell.reshape(-1)).abs()<1e-4).sum()==(number),(u_xx_cell.reshape(-1)-u2_xx_cell.reshape(-1)).abs().max(),(u_xx_cell.reshape(-1)-u2_xx_cell.reshape(-1)).abs().argmax()))
-    print('u_yy_cell == u2_yy_cell: {}, max_error: {} at {}'.format(((u_yy_cell.reshape(-1)-u2_yy_cell.reshape(-1)).abs()<1e-4).sum()==(number),(u_yy_cell.reshape(-1)-u2_yy_cell.reshape(-1)).abs().max(),(u_yy_cell.reshape(-1)-u2_yy_cell.reshape(-1)).abs().argmax()))
+    print('u_xx_cell == u2_xx_cell, max_error: {} at {}'.format((u_xx_cell.reshape(-1)-u2_xx_cell.reshape(-1)).abs().max(),(u_xx_cell.reshape(-1)-u2_xx_cell.reshape(-1)).abs().argmax()))
+    print('u_yy_cell == u2_yy_cell, max_error: {} at {}'.format((u_yy_cell.reshape(-1)-u2_yy_cell.reshape(-1)).abs().max(),(u_yy_cell.reshape(-1)-u2_yy_cell.reshape(-1)).abs().argmax()))
     # print('u_xxx == u2_xxx: {}, max_error: {} at {}'.format(((u_xxx.reshape(-1)-u2_xxx.reshape(-1)).abs()<1e-4).sum()==(number),(u_xxx.reshape(-1)-u2_xxx.reshape(-1)).abs().max(),(u_xxx.reshape(-1)-u2_xxx.reshape(-1)).abs().argmax()))
     # print('u_yyy == u2_yyy: {}, max_error: {} at {}'.format(((u_yyy.reshape(-1)-u2_yyy.reshape(-1)).abs()<1e-4).sum()==(number),(u_yyy.reshape(-1)-u2_yyy.reshape(-1)).abs().max(),(u_yyy.reshape(-1)-u2_yyy.reshape(-1)).abs().argmax()))
 
     torch.set_printoptions(threshold=100000*16*4)
     # different = u_xx.squeeze() - u2_xx.squeeze()
 
-    f2_pred =  u2_y + val2.to('cuda') * u2_x - u2_xx
-    loss2_f = torch.mean(f2_pred**2)
+    # f2_pred =  u2_y*2 + 5*(val2.to('cuda')**3) - 5*val2.to('cuda') - 0.0001*u2_xx 
+    f2_pred = u2_y + val2.to('cuda')*u2_x - 0.01/np.pi*u2_xx
+    uloss2_pred = u2_y + val2.to('cuda')*u2_x - 0.01/np.pi*u2_xx
+    loss2_f = 0.01*torch.mean(f2_pred**2) + torch.mean(uloss2_pred**2)
+
 
     print("----dloss2----")
     dloss2 = torch.autograd.grad(
@@ -605,9 +609,11 @@ if __name__ == '__main__':
     #     create_graph=True
     # )[0]
 
+    f_pred = u_y + val2.to('cuda')*u_x - 0.01/np.pi*u_xx
+    uloss_pred = u_y + val2.to('cuda')*u_x - 0.01/np.pi*u_xx
 
-    f_pred =  u_y + val.to('cuda') * u_x - u_xx
-    loss_f = torch.mean(f_pred**2)
+    # f_pred =   u_y*2 + 5*(val.to('cuda')**3) - 5*val.to('cuda') - 0.0001*u_xx 
+    loss_f = 0.01*torch.mean(f_pred**2) + torch.mean(uloss_pred**2)
 
     dloss = torch.autograd.grad(
         loss_f, cells, 
@@ -615,6 +621,8 @@ if __name__ == '__main__':
         retain_graph=True,
         create_graph=True
     )[0]
+
+    
 
     # ddloss = torch.autograd.grad(
     #     dloss, cells, 
@@ -630,6 +638,6 @@ if __name__ == '__main__':
     print('dloss == dloss2: {}, max_error: {} at {}'.format(((dloss.reshape(-1)-dloss2.reshape(-1)).abs()<1e-4).sum()==(number),(dloss.reshape(-1)-dloss2.reshape(-1)).abs().max(),(dloss.reshape(-1)-dloss2.reshape(-1)).abs().argmax()))
     # print('ddloss == ddloss2: {}, max_error: {} at {}'.format(((ddloss.reshape(-1)-ddloss2.reshape(-1)).abs()<1e-4).sum()==(number),(ddloss.reshape(-1)-ddloss2.reshape(-1)).abs().max(),(ddloss.reshape(-1)-ddloss2.reshape(-1)).abs().argmax()))
 
-    print(np.testing.assert_allclose((dloss).reshape(-1).detach().cpu().numpy(), (dloss2).reshape(-1).detach().cpu().numpy(), rtol=1e-2, atol=0))
+    print(np.testing.assert_allclose((dloss).reshape(-1).detach().cpu().numpy(), (dloss2).reshape(-1).detach().cpu().numpy(), rtol=1e-4, atol=0))
 
     exit(1)
