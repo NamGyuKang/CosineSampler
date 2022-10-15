@@ -35,14 +35,14 @@ void launch_cosine_sampler_backward_backward_kernel(
 void launch_cosine_sampler_backward_backward_backward_kernel(
     const torch::TensorBase& gInput,
     const torch::TensorBase& ggOut,
+    // const torch::TensorBase& gGrid,
     const torch::TensorBase& input,
     const torch::TensorBase& grid,
     // const torch::TensorBase& gOutInput,
-    // const torch::TensorBase& gOutGrid,
     const torch::TensorBase& gOut,
     const torch::TensorBase& gOutggOut,
+    const torch::TensorBase& gOutGrid,
     const torch::TensorBase& gOutgGrid,
-    
     const torch::TensorBase &offset,
     int64_t padding_mode,
     const bool align_corners,
@@ -112,25 +112,26 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> cosine_sampler_backward_
 }
 
 std::tuple<torch::Tensor, torch::Tensor> cosine_sampler_backward_backward_backward(torch::Tensor input, torch::Tensor grid, torch::Tensor gOut, torch::Tensor gOutggOut,
-                                              torch::Tensor gOutgGrid,
+                                             torch::Tensor gOutGrid, torch::Tensor gOutgGrid,
                                               torch::Tensor offset, int64_t padding_mode, bool align_corners,
                                                                   bool apply_cosine_step, bool input_requires_grad) {
   CHECK_INPUT(input)
   CHECK_INPUT(grid)
   CHECK_INPUT(gOut)
   CHECK_INPUT(gOutggOut)
-  // CHECK_INPUT(gOutInput)
-  // CHECK_INPUT(gOutGrid)
   CHECK_INPUT(gOutgGrid)
+  // CHECK_INPUT(gOutGrid)
+  CHECK_INPUT(gOutGrid)
   CHECK_INPUT(offset)
   const at::cuda::OptionalCUDAGuard device_guard(device_of(input));
   
   auto gInput = torch::zeros_like(input, LEGACY_CONTIGUOUS_MEMORY_FORMAT);
   auto ggOut = torch::zeros_like(gOut, LEGACY_CONTIGUOUS_MEMORY_FORMAT);
+  // auto gGrid = torch::empty_like(grid, LEGACY_CONTIGUOUS_MEMORY_FORMAT);
 
   
-  launch_cosine_sampler_backward_backward_backward_kernel(gInput, ggOut, input, grid, 
-                                                 gOut, gOutggOut, gOutgGrid, offset,
+  launch_cosine_sampler_backward_backward_backward_kernel(gInput, ggOut,  input, grid, 
+                                                 gOut, gOutggOut, gOutGrid,gOutgGrid, offset,
                                                  padding_mode, align_corners, apply_cosine_step, input_requires_grad);
   return std::make_tuple(gInput, ggOut);
 }

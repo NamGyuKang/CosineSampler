@@ -30,23 +30,26 @@ class CosineSampler(torch.autograd.Function):
     def forward(ctx, input, grid, padding_mode='zeros', align_corners = True, apply_cosine_step = 'cosine'):
         ''' offset merge kernel'''
         print('1st F')
+        
         offset  =torch.linspace(0, 1-(1/input.shape[0]), input.shape[0]).to('cuda')
+        ctx.padding_mode = padding_mode
         output = _cosine.forward(input, grid, offset, padding_mode_enum(padding_mode=padding_mode), align_corners, apply_cosine_step_mode_enum(apply_cosine_step=apply_cosine_step))
         ctx.save_for_backward(input, grid)
         ctx.align_corners = align_corners
         ctx.apply_cosine_step = apply_cosine_step
-        ctx.padding_mode = padding_mode
 
         return output
 
     @staticmethod
     def backward(ctx, gradOut):
+        
         input, grid = ctx.saved_tensors
         print('1st B')
         if (gradOut == 0.).all().item():
             return torch.zeros_like(input), torch.zeros_like(grid), None, None, None
 
         d_input, d_grid = CosineSamplerBackward.apply(input, grid, gradOut.contiguous(), ctx.padding_mode, ctx.align_corners, ctx.apply_cosine_step)
+
 
         return d_input, d_grid, None, None, None
 
@@ -60,7 +63,8 @@ class CosineSamplerBackward(torch.autograd.Function):
         ctx.padding_mode = padding_mode
 
         offset = torch.linspace(0,1-(1/input.shape[0]),input.shape[0]).to("cuda")
-        
+        print('그라드', input.requires_grad)
+
         gInput, gGrid = _cosine.backward(gOut, input, grid, offset, padding_mode_enum(padding_mode),
                                             ctx.align_corners, apply_cosine_step_mode_enum(apply_cosine_step), input.requires_grad)
         
@@ -90,11 +94,12 @@ class CosineSamplerBackwardBackward(torch.autograd.Function):
         offset = torch.linspace(0,1-(1/input.shape[0]),input.shape[0]).to("cuda")
         
         input_requires_grad = gOutInput is not None and (gOutInput != 0.).any().item()
-        
+        print('3F 그라드', input_requires_grad)
+
         gInput, gGrid, ggOut = _cosine.backward_backward(gOutInput, gOutGrid, input, grid, gOut, offset,
                                                                     padding_mode_enum(padding_mode), align_corners,
                                                                     apply_cosine_step_mode_enum(apply_cosine_step), input_requires_grad)
-        ctx.save_for_backward(input, grid, gOut, gOutInput, gOutGrid, ggOut)
+        ctx.save_for_backward(input, grid, gOut, gOutInput, gOutGrid, gGrid)
 
         return gInput, gGrid, ggOut
 
@@ -104,16 +109,17 @@ class CosineSamplerBackwardBackward(torch.autograd.Function):
         align_corners = ctx.align_corners
         apply_cosine_step = ctx.apply_cosine_step
         padding_mode = ctx.padding_mode
-        input, grid, gOut, gOutInput, gOutGrid, ggOut = ctx.saved_tensors
+        input, grid, gOut, gOutInput, gOutGrid, gGrid = ctx.saved_tensors
 
         offset = torch.linspace(0,1-(1/input.shape[0]),input.shape[0]).to("cuda")
         input_requires_grad = gOutgInput is not None and (gOutgInput != 0.).any().item()
-
-        gInput, ggOut2 = _cosine.backward_backward_backward(input, grid, gOut, gOutggOut, gOutgGrid.contiguous(), offset,
+        print('3B 그라드', input_requires_grad)
+        # import numpy as np
+        # print(np.testing.assert_allclose(gOutgGrid.reshape(-1).detach().cpu().numpy(), gOutGrid.reshape(-1).detach().cpu().numpy(), rtol=1e-2, atol=0))
+        gInput, ggOut2 = _cosine.backward_backward_backward(input, grid, gOut, gOutggOut, gOutGrid, gOutgGrid.contiguous(), offset,
                                                                     padding_mode_enum(padding_mode), align_corners,
                                                                     apply_cosine_step_mode_enum(apply_cosine_step), input_requires_grad)
-
-
+        
 
         return gInput, None, ggOut2, None, None, None, None, None
 
@@ -130,7 +136,7 @@ if __name__ == '__main__':
     padding_mode = 'zeros' # border, reflection
     align_corners = True
 
-    cells = torch.rand([n_cell, cell_dim, 16, 16], device = 'cuda').requires_grad_(True)
+    cells = torch.nn.Parameter(torch.rand([n_cell, cell_dim, 16, 16], device = 'cuda')).requires_grad_(True)
     x = (torch.rand((n_cell, 1,numb, 1), dtype = torch.float32)).requires_grad_(True)
     y = (torch.rand((n_cell, 1,numb, 1), dtype = torch.float32)).requires_grad_(True)
 
@@ -141,10 +147,12 @@ if __name__ == '__main__':
     y = y.to('cuda')
 
     grid = torch.cat([y, x], -1)
+    # with torch.no_grad():
+    # grid = grid.unsqueeze(0).unsqueeze(0).repeat([n_cell, 1, 1, 1])
     # grid = grid.unsqueeze(0).unsqueeze(0).repeat([n_cell, 1, 1, 1])
 
     # grid = torch.rand((n_cell, 1, numb, 2), dtype = torch.float32).requires_grad_(True).to('cuda')
-
+    
     start = time.time()
 
     val2 = CosineSampler.apply(cells, grid, padding_mode, align_corners, step)
@@ -152,7 +160,7 @@ if __name__ == '__main__':
 
     print('custom forward: ',end - start)
     net= []
-    net.append(torch.nn.Linear(4, 16))
+    net.append(torch.nn.Linear(cell_dim, 16))
     net.append(torch.nn.Tanh())
     for i in range(2-2): 
         net.append(torch.nn.Linear(16, 16))
@@ -199,6 +207,7 @@ if __name__ == '__main__':
         retain_graph=True,
         create_graph=True
     )[0]
+
 
 
     print("---u2xx==--")
@@ -324,6 +333,24 @@ if __name__ == '__main__':
     )[0]
     print("shape check", u2_yy_cell.shape)
 
+    # print("--u2_xxx--")
+    # u2_xxx = torch.autograd.grad(
+    #     u2_xx, x, 
+    #     grad_outputs=torch.ones_like(u2_xx),
+    #     retain_graph=True,
+    #     create_graph=True
+    # )[0]
+    # print("shape check", u2_xxx.shape)
+
+    # print("--u2_yyy--")
+    # u2_yyy = torch.autograd.grad(
+    #     u2_yy, y, 
+    #     grad_outputs=torch.ones_like(u2_yy),
+    #     retain_graph=True,
+    #     create_graph=True
+    # )[0]
+    # print("shape check", u2_yyy.shape)
+
 
     # make_dot(val2, show_attrs=True, show_saved=True).render("cpp_graphs/plz_tanh_tmp_val", format="png")
     # make_dot(u2_x, show_attrs=True, show_saved=True).render("cpp_graphs/plz_tanh_tmp_val_x", format="png")
@@ -332,6 +359,7 @@ if __name__ == '__main__':
 
 
     start = time.time()
+    
     val = grid_sample_temp.grid_sample_2d(cells, grid, step=step, offset=off) 
     end = time.time()
     print('python forward: ', end - start)
@@ -340,7 +368,8 @@ if __name__ == '__main__':
 
     val = val.to("cpu")
     # val = torch.tanh(val)
-    # val = torch.tanh(val)
+    # # val = torch.tanh(val)
+    
     val = val.sum(0).view(cell_dim,-1).t()
     val = net(val)
 
@@ -488,8 +517,39 @@ if __name__ == '__main__':
     )[0]
     print("shape check", u_yy_cell.shape)
 
+    # print("--u_xxx--")
+    # u_xxx = torch.autograd.grad(
+    #     u_xx, x, 
+    #     grad_outputs=torch.ones_like(u_xx),
+    #     retain_graph=True,
+    #     create_graph=True
+    # )[0]
+    # print("shape check", u_xxx.shape)
+
+    # print("--u_yyy--")
+    # u_yyy = torch.autograd.grad(
+    #     u_yy, y, 
+    #     grad_outputs=torch.ones_like(u_yy),
+    #     retain_graph=True,
+    #     create_graph=True
+    # )[0]
+    # print("shape check", u_yyy.shape)
+
+    # u2_cell/=96
+    # u2_x/=96
+    # u2_y/=96 
+    # u2_xx/=96; u2_yy/=96;  
+    # u2_cell_x/=96; u2_cell_y/=96; u2_x_cell/=96; u2_y_cell/=96; u2_x_y/=96; u2_y_x/=96; 
+    # u2_xx_cell/=96; u2_yy_cell/=96
+    # u_cell/=96
+    # u_x/=96
+    # u_y/=96 
+    # u_xx/=96; u_yy/=96;  
+    # u_cell_x/=96; u_cell_y/=96; u_x_cell/=96; u_y_cell/=96; u_x_y/=96; u_y_x/=96; 
+    # u_xx_cell/=96; u_yy_cell/=96
+
     import numpy as np    
-    # print(np.testing.assert_allclose(u2_xx_cell.reshape(-1).detach().cpu().numpy(), u_xx_cell.reshape(-1).detach().cpu().numpy(), rtol=1e-2, atol=0))
+    # print(np.testing.assert_allclose(u2_xx.reshape(-1).detach().cpu().numpy(), u_xx.reshape(-1).detach().cpu().numpy(), rtol=1e-2, atol=0))
     # print(np.testing.assert_allclose(u2_yy_cell.reshape(-1).detach().cpu().numpy(), u_yy_cell.reshape(-1).detach().cpu().numpy(), rtol=4e-4, atol=0))
     # print(np.testing.assert_allclose(u2_x.reshape(-1).detach().cpu().numpy(), u_x.reshape(-1).detach().cpu().numpy(), rtol=1.5e-1, atol=0))
     # print(np.testing.assert_allclose(u2_y.reshape(-1).detach().cpu().numpy(), u_y.reshape(-1).detach().cpu().numpy(), rtol=8e-2, atol=0))
@@ -498,6 +558,7 @@ if __name__ == '__main__':
     # print(u_xx.reshape(-1)[8288269:8288269+100], u2_xx.reshape(-1)[8288269:8288269+100])
     # print(u_yy.reshape(-1)[6150152], u2_yy.reshape(-1)[6150152])
     # exit(1)
+    
     print('val == val2: {}, max_error: {} at {}'.format(((val.reshape(-1)-val2.reshape(-1)).abs()<1e-4).sum()==(number),(val.reshape(-1)-val2.reshape(-1)).abs().max(),(val.reshape(-1)-val2.reshape(-1)).abs().argmax()))
     print('u_cell == u2_cell: {}, max_error: {} at {}'.format(((u_cell.reshape(-1)-u2_cell.reshape(-1)).abs()<1e-4).sum()==(number),(u_cell.reshape(-1)-u2_cell.reshape(-1)).abs().max(),(u_cell.reshape(-1)-u2_cell.reshape(-1)).abs().argmax()))
     print('u_x == u2_x: {}, max_error: {} at {}'.format(((u_x.reshape(-1)-u2_x.reshape(-1)).abs()<1e-4).sum()==(number),(u_x.reshape(-1)-u2_x.reshape(-1)).abs().max(),(u_x.reshape(-1)-u2_x.reshape(-1)).abs().argmax()))
@@ -520,11 +581,13 @@ if __name__ == '__main__':
 
     print('u_xx_cell == u2_xx_cell: {}, max_error: {} at {}'.format(((u_xx_cell.reshape(-1)-u2_xx_cell.reshape(-1)).abs()<1e-4).sum()==(number),(u_xx_cell.reshape(-1)-u2_xx_cell.reshape(-1)).abs().max(),(u_xx_cell.reshape(-1)-u2_xx_cell.reshape(-1)).abs().argmax()))
     print('u_yy_cell == u2_yy_cell: {}, max_error: {} at {}'.format(((u_yy_cell.reshape(-1)-u2_yy_cell.reshape(-1)).abs()<1e-4).sum()==(number),(u_yy_cell.reshape(-1)-u2_yy_cell.reshape(-1)).abs().max(),(u_yy_cell.reshape(-1)-u2_yy_cell.reshape(-1)).abs().argmax()))
+    # print('u_xxx == u2_xxx: {}, max_error: {} at {}'.format(((u_xxx.reshape(-1)-u2_xxx.reshape(-1)).abs()<1e-4).sum()==(number),(u_xxx.reshape(-1)-u2_xxx.reshape(-1)).abs().max(),(u_xxx.reshape(-1)-u2_xxx.reshape(-1)).abs().argmax()))
+    # print('u_yyy == u2_yyy: {}, max_error: {} at {}'.format(((u_yyy.reshape(-1)-u2_yyy.reshape(-1)).abs()<1e-4).sum()==(number),(u_yyy.reshape(-1)-u2_yyy.reshape(-1)).abs().max(),(u_yyy.reshape(-1)-u2_yyy.reshape(-1)).abs().argmax()))
 
     torch.set_printoptions(threshold=100000*16*4)
     # different = u_xx.squeeze() - u2_xx.squeeze()
 
-    f2_pred =  u2_xx
+    f2_pred =  u2_y + val2.to('cuda') * u2_x - u2_xx
     loss2_f = torch.mean(f2_pred**2)
 
     print("----dloss2----")
@@ -543,7 +606,7 @@ if __name__ == '__main__':
     # )[0]
 
 
-    f_pred =  u_xx 
+    f_pred =  u_y + val.to('cuda') * u_x - u_xx
     loss_f = torch.mean(f_pred**2)
 
     dloss = torch.autograd.grad(
@@ -564,10 +627,9 @@ if __name__ == '__main__':
     # print(dloss.shape)
     # dloss = dloss.flatten()
     # dloss2 = dloss2.flatten()
-
     print('dloss == dloss2: {}, max_error: {} at {}'.format(((dloss.reshape(-1)-dloss2.reshape(-1)).abs()<1e-4).sum()==(number),(dloss.reshape(-1)-dloss2.reshape(-1)).abs().max(),(dloss.reshape(-1)-dloss2.reshape(-1)).abs().argmax()))
     # print('ddloss == ddloss2: {}, max_error: {} at {}'.format(((ddloss.reshape(-1)-ddloss2.reshape(-1)).abs()<1e-4).sum()==(number),(ddloss.reshape(-1)-ddloss2.reshape(-1)).abs().max(),(ddloss.reshape(-1)-ddloss2.reshape(-1)).abs().argmax()))
 
-    print(np.testing.assert_allclose((dloss).reshape(-1).detach().cpu().numpy(), (dloss2).reshape(-1).detach().cpu().numpy(), rtol=1e-4, atol=0))
+    print(np.testing.assert_allclose((dloss).reshape(-1).detach().cpu().numpy(), (dloss2).reshape(-1).detach().cpu().numpy(), rtol=1e-2, atol=0))
 
     exit(1)

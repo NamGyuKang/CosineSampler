@@ -254,6 +254,9 @@ __device__ inline float cosine_derivative(float val) {
 __device__ inline float cosine_2nd_derivative(float val) {
 	return  0.5f * CUDART_PI_F * CUDART_PI_F *cos(CUDART_PI_F*val);
 }
+__device__ inline float cosine_3rd_derivative(float val) {
+	return  -0.5f * CUDART_PI_F * CUDART_PI_F * CUDART_PI_F *sin(CUDART_PI_F*val);
+}
 
 
 
@@ -709,8 +712,8 @@ __global__ void cosine_sampler_backward_backward_kernel(
                                         true);
             
             // u_xx, u_yy
-            d2L_dix2 += surf_weight * gOut * (d2Out_dx2 * gOutGrid_x + d2Out_dxdy * gOutGrid_y);
-            d2L_diy2 += surf_weight * gOut * (d2Out_dy2 * gOutGrid_y + d2Out_dydx * gOutGrid_x);
+            d2L_dix2 += surf_weight * gOut * (d2Out_dx2 * gOutGrid_x);
+            d2L_diy2 += surf_weight * gOut * (d2Out_dy2 * gOutGrid_y);
 
             // at::native::safe_add_2d(grad_input.data, iy, ix, gInp_sH, gInp_sW, inp_H, inp_W, dL_dx * gOutGrid_x + dL_dy * gOutGrid_y, NC_offset_inp, grad_input_memory_span);
             
@@ -734,13 +737,13 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
     const index_t nthreads,
     at::cuda::detail::TensorInfo<scalar_t, index_t> gInput, // initialized to empty
     at::cuda::detail::TensorInfo<scalar_t, index_t> ggOut, 
+    // at::cuda::detail::TensorInfo<scalar_t, index_t> gGrid,
     at::cuda::detail::TensorInfo<scalar_t, index_t> input,
     at::cuda::detail::TensorInfo<scalar_t, index_t> grid,
-    // at::cuda::detail::TensorInfo<scalar_t, index_t> gOutInput,
-    // at::cuda::detail::TensorInfo<scalar_t, index_t> gOutGrid,
     at::cuda::detail::TensorInfo<scalar_t, index_t> gOut,
     at::cuda::detail::TensorInfo<scalar_t, index_t> gOutggOut, 
-    at::cuda::detail::TensorInfo<scalar_t, index_t> gOutgGrid, 
+    at::cuda::detail::TensorInfo<scalar_t, index_t> gOutGrid, 
+    at::cuda::detail::TensorInfo<scalar_t, index_t> gOutgGrid,
     at::cuda::detail::TensorInfo<scalar_t, index_t> offset,
     const at::native::detail::GridSamplerPadding padding_mode,
     bool align_corners,
@@ -777,16 +780,16 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
 
     index_t off_sN = offset.strides[0];
 
-    // index_t gOutInput_sN = 0;
-    // index_t gOutInput_sC = 0;
+    // index_t gOutgInput_sN = 0;
+    // index_t gOutgInput_sC = 0;
 
     // index_t gGrid_sW = gGrid.strides[2]; // 원래 3
-    // index_t gOutGrid_sW = gOutGrid.strides[2]; // 원래 3
+    index_t gOutGrid_sW = gOutGrid.strides[2]; // 원래 3
     index_t gOutgGrid_sW = gOutgGrid.strides[2];
 
     // if (input_requires_grad) {
-    //     gOutInput_sN = gOutInput.strides[0];
-    //     gOutInput_sC = gOutInput.strides[1];
+    //     gOutgInput_sN = gOutgInput.strides[0];
+    //     gOutgInput_sC = gOutgInput.strides[1];
     // }
 
     index_t gInp_sN = gInput.strides[0];
@@ -825,7 +828,14 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
         float dx_right_derivative = -dL_dix_mult;
         float dy_bottom_derivative = -dL_diy_mult;
 
+        
+        float dx_right_3nd_derivative = -dL_dix_mult;
+        float dy_bottom_3nd_derivative = -dL_diy_mult;
+
         if (apply_cosine_step) {
+            dx_right_3nd_derivative *= dL_dix_mult * dL_dix_mult * cosine_3rd_derivative(dx_right);
+            dy_bottom_3nd_derivative *= dL_diy_mult * dL_diy_mult * cosine_3rd_derivative(dy_bottom);
+
             dx_right_2nd_derivative = dL_dix_mult * dL_dix_mult * cosine_2nd_derivative(dx_right);
             dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * cosine_2nd_derivative(dy_bottom);
             dx_right_derivative *= cosine_derivative(dx_right);
@@ -841,6 +851,8 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
         scalar_t dy_top_derivative = -dy_bottom_derivative;
         scalar_t dx_left_2nd_derivative = -dx_right_2nd_derivative;
         scalar_t dy_top_2nd_derivative = -dy_bottom_2nd_derivative;
+        scalar_t dx_left_3nd_derivative = -dx_right_3nd_derivative;
+        scalar_t dy_top_3nd_derivative = -dy_bottom_3nd_derivative;
 
         index_t index_corners[2][2] = {{ix_left, iy_top},
                                         {ix_right, iy_bottom}};
@@ -862,14 +874,14 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
         // surface_coefficients[shift] = pos_corners[px][0] * pos_corners[py][1]; // 
         out_derivatives[0][shift] = pos_corners[py][1] * pos_corners[px][2]; // dOut_dx / surf_weight
         out_derivatives[1][shift] = pos_corners[py][1] * pos_corners[px][4]; // d2Out_dx2 / surf_weight
-        // out_derivatives[2][shift] = pos_corners[py][3] * pos_corners[px][2]; // d2Out_dxdy / surf_weight
+        // out_derivatives[2][shift] = pos_corners[py][1] * pos_corners[px][6]; // d3Out_dx3 / surf_weight
 
         out_derivatives[2][shift] = pos_corners[px][0] * pos_corners[py][3]; // dOut_dy / surf_weight
         out_derivatives[3][shift] = pos_corners[px][0] * pos_corners[py][5]; // d2Out_dy2 / surf_weight
-        // out_derivatives[5][shift] = pos_corners[px][2] * pos_corners[py][3]; // d2Out_dydx / surf_weight
+        // out_derivatives[5][shift] = pos_corners[px][0] * pos_corners[py][7]; // d3Out_dy3 / surf_weight
         }
 
-        // scalar_t d2L_dix2 = static_cast<scalar_t>(0), d2L_diy2 = static_cast<scalar_t>(0);
+        scalar_t d3L_dix3 = static_cast<scalar_t>(0), d3L_diy3 = static_cast<scalar_t>(0);
         index_t offset_out_DHW =  h * gOut_sH + w * gOut_sW;
         scalar_t *gOut_ptr_NCDHW = gOut.data + n * gOut_sN + offset_out_DHW;
 
@@ -880,13 +892,13 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
         index_t NC_offset_out = n * gOut_sN;
         scalar_t *inp_ptr_NC = input.data + n * inp_sN;
 
-        // scalar_t *gOutInput_ptr_NC = NULL;
+        // scalar_t *gOutgInput_ptr_NC = NULL;
 
         // if (input_requires_grad) {
-        //     gOutInput_ptr_NC = gOutInput.data + n * gOutInput_sN;
+        //     gOutgInput_ptr_NC = gOutgInput.data + n * gOutgInput_sN;
         // }
 
-        // scalar_t *gOutGrid_ptr_NDHW = gOutGrid.data +  index * gOutGrid_sW;
+        scalar_t *gOutGrid_ptr_NDHW = gOutGrid.data +  index * gOutGrid_sW;
         
         //////////////////////////////////////////////
         scalar_t *gOutgGrid_ptr_NDHW = gOutgGrid.data +  index * gOutgGrid_sW;
@@ -907,10 +919,10 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
             // Slightly unprecise naming: in fact these are divided by surf_weight.
             scalar_t dOut_dx = out_derivatives[0][shift]; // E.g. variable "dOut_dx" is mathematically "dOut/dx * 1/surf_weight"
             scalar_t d2Out_dx2 = out_derivatives[1][shift];
-            // scalar_t d2Out_dxdy = out_derivatives[2][shift];
+            // scalar_t d3Out_dx3 = out_derivatives[2][shift];
             scalar_t dOut_dy = out_derivatives[2][shift];
             scalar_t d2Out_dy2 = out_derivatives[3][shift];
-            // scalar_t d2Out_dydx = out_derivatives[5][shift];
+            // scalar_t d3Out_dy3 = out_derivatives[5][shift];
             // scalar_t surface_coeff = surface_coefficients[shift];
 
         if (at::native::within_bounds_2d(iy, ix, inp_H, inp_W)) {
@@ -920,19 +932,19 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
             // scalar_t dL_dx = gOut * dOut_dx;
             // scalar_t dL_dy = gOut * dOut_dy;
 
-            // scalar_t gOutGrid_x = gOutGrid_ptr_NDHW[0];
-            // scalar_t gOutGrid_y = gOutGrid_ptr_NDHW[1];
+            scalar_t gOutGrid_x = gOutGrid_ptr_NDHW[0];
+            scalar_t gOutGrid_y = gOutGrid_ptr_NDHW[1];
             //////////////////////////////////////////////
             scalar_t gOutgGrid_x = gOutgGrid_ptr_NDHW[0];
             scalar_t gOutgGrid_y = gOutgGrid_ptr_NDHW[1];
             //////////////////////////////////////////////
             
 
-            scalar_t ggOut_delta = surf_weight * (d2Out_dx2 * gOutgGrid_x + d2Out_dy2 * gOutgGrid_y); // u_x_C
+            scalar_t ggOut_delta =  surf_weight * (d2Out_dx2 * gOutgGrid_x + d2Out_dy2 * gOutgGrid_y); // (dOut_dx * gOutgGrid_x + dOut_dy * gOutgGrid_y) +  
 
-            // if (gOutInput_ptr_NC != NULL) {
-            //     scalar_t gOutInput = gOutInput_ptr_NC[inp_el];
-            //     ggOut_delta += gOutInput * surface_coeff; // u_c
+            // if (gOutgInput_ptr_NC != NULL) {
+            //     scalar_t gOutgInput = gOutgInput_ptr_NC[inp_el];
+            //     ggOut_delta += gOutgInput*(dOut_dx * gOutGrid_x + dOut_dy * gOutGrid_y) ; // u_c
             //     // d2L_dix2 += dL_dx * gOutInput;
             //     // d2L_diy2 += dL_dy * gOutInput;
             // }
@@ -946,17 +958,20 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
             // u_xx, u_yy
             scalar_t d2L_dix2 = gOut *  (d2Out_dx2);
             scalar_t d2L_diy2 = gOut *  (d2Out_dy2);
+            
+            // d3L_dix3 += gOut *  (d3Out_dx3)* gOutgGrid_x ;
+            // d3L_diy3 += gOut *  (d3Out_dy3)* gOutgGrid_y ;
 
             // at::native::safe_add_2d(grad_input.data, iy, ix, gInp_sH, gInp_sW, inp_H, inp_W, dL_dx * gOutGrid_x + dL_dy * gOutGrid_y, NC_offset_inp, grad_input_memory_span);
             
             // cell로 미분
-            add_2d(gInput.data, iy, ix, gInp_sH, gInp_sW, d2L_dix2 * gOutgGrid_x + d2L_diy2 * gOutgGrid_y, NC_offset_inp, gInput_memory_span);
+            add_2d(gInput.data, iy, ix, gInp_sH, gInp_sW,  (d2L_dix2 * gOutgGrid_x + d2L_diy2 * gOutgGrid_y), NC_offset_inp, gInput_memory_span);
         }
       }
     }
 
-    // gGrid_ptr_NDHW[0] = d2L_dix2;
-    // gGrid_ptr_NDHW[1] = d2L_diy2;
+    // gGrid_ptr_NDHW[0] = d3L_dix3;
+    // gGrid_ptr_NDHW[1] = d3L_diy3;
   }
 }
 
@@ -1123,13 +1138,14 @@ void launch_cosine_sampler_backward_backward_kernel(
 void launch_cosine_sampler_backward_backward_backward_kernel(
     const torch::TensorBase& gInput,
     const torch::TensorBase& ggOut,
+    // const torch::TensorBase& gGrid,
     const torch::TensorBase& input,
     const torch::TensorBase& grid,
-    // const torch::TensorBase& gOutInput,
     // const torch::TensorBase& gOutGrid,
     const torch::TensorBase& gOut,
     const torch::TensorBase& gOutggOut,
-    const torch::TensorBase& gOutgGrid, 
+    const torch::TensorBase& gOutGrid, 
+    const torch::TensorBase& gOutgGrid,
     const torch::TensorBase &offset,
     int64_t padding_mode,
     const bool align_corners,
@@ -1149,13 +1165,15 @@ void launch_cosine_sampler_backward_backward_backward_kernel(
             static_cast<int>(count),
             at::cuda::detail::getTensorInfo<scalar_t, int>(gInput),
             at::cuda::detail::getTensorInfo<scalar_t, int>(ggOut),
+            // at::cuda::detail::getTensorInfo<scalar_t, int>(gGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int>(input),
             at::cuda::detail::getTensorInfo<scalar_t, int>(grid),
-            // input_requires_grad ? at::cuda::detail::getTensorInfo<scalar_t, int>(gOutInput) : at::cuda::detail::TensorInfo<scalar_t, int>(),
             // at::cuda::detail::getTensorInfo<scalar_t, int>(gOutGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int>(gOut),
             at::cuda::detail::getTensorInfo<scalar_t, int>(gOutggOut),
+            at::cuda::detail::getTensorInfo<scalar_t, int>(gOutGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int>(gOutgGrid),
+            // input_requires_grad ? at::cuda::detail::getTensorInfo<scalar_t, int>(gOutgInput) : at::cuda::detail::TensorInfo<scalar_t, int>(),
             at::cuda::detail::getTensorInfo<scalar_t, int>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
@@ -1170,14 +1188,16 @@ void launch_cosine_sampler_backward_backward_backward_kernel(
             count,
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gInput),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(ggOut),
+            // at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(input),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(grid),
-            // input_requires_grad ? at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutInput) : at::cuda::detail::TensorInfo<scalar_t, int64_t>(),
             // at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOut),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutggOut),
+            at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutgGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(offset),
+            // input_requires_grad ? at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutgInput) : at::cuda::detail::TensorInfo<scalar_t, int64_t>(),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
             apply_cosine_step,
