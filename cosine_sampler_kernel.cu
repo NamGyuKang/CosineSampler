@@ -940,7 +940,7 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
             //////////////////////////////////////////////
             
 
-            scalar_t ggOut_delta =  surf_weight * (d2Out_dx2 * gOutgGrid_x + d2Out_dy2 * gOutgGrid_y); // (dOut_dx * gOutgGrid_x + dOut_dy * gOutgGrid_y) +  
+            scalar_t ggOut_delta =  surf_weight * (d2Out_dx2 * gOutgGrid_x*gOutGrid_x + d2Out_dy2 * gOutgGrid_y*gOutGrid_y); // (dOut_dx * gOutgGrid_x + dOut_dy * gOutgGrid_y) +  
 
             // if (gOutgInput_ptr_NC != NULL) {
             //     scalar_t gOutgInput = gOutgInput_ptr_NC[inp_el];
@@ -965,7 +965,7 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
             // at::native::safe_add_2d(grad_input.data, iy, ix, gInp_sH, gInp_sW, inp_H, inp_W, dL_dx * gOutGrid_x + dL_dy * gOutGrid_y, NC_offset_inp, grad_input_memory_span);
             
             // cell로 미분
-            add_2d(gInput.data, iy, ix, gInp_sH, gInp_sW,  (d2L_dix2 * gOutgGrid_x + d2L_diy2 * gOutgGrid_y), NC_offset_inp, gInput_memory_span);
+            add_2d(gInput.data, iy, ix, gInp_sH, gInp_sW, (d2L_dix2 * gOutgGrid_x *gOutGrid_x + d2L_diy2 * gOutgGrid_y*gOutGrid_y), NC_offset_inp, gInput_memory_span);
         }
       }
     }
