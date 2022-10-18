@@ -32,9 +32,9 @@ class CosineSampler(torch.autograd.Function):
         ''' offset merge kernel'''
         # print('1st F')
         
-        offset  =torch.linspace(0, 1-(1/input.shape[0]), input.shape[0]).to('cuda')
+        ctx.offset  =torch.linspace(0, 1-(1/input.shape[0]), input.shape[0]).to('cuda')
         ctx.padding_mode = padding_mode
-        output = _cosine.forward(input, grid, offset, padding_mode_enum(padding_mode=padding_mode), align_corners, apply_cosine_step_mode_enum(apply_cosine_step=apply_cosine_step))
+        output = _cosine.forward(input, grid, ctx.offset, padding_mode_enum(padding_mode=padding_mode), align_corners, apply_cosine_step_mode_enum(apply_cosine_step=apply_cosine_step))
         ctx.save_for_backward(input, grid)
         ctx.align_corners = align_corners
         ctx.apply_cosine_step = apply_cosine_step
@@ -49,7 +49,7 @@ class CosineSampler(torch.autograd.Function):
         if (gradOut == 0.).all().item():
             return torch.zeros_like(input), torch.zeros_like(grid), None, None, None
 
-        d_input, d_grid = CosineSamplerBackward.apply(input, grid, gradOut.contiguous(), ctx.padding_mode, ctx.align_corners, ctx.apply_cosine_step)
+        d_input, d_grid = CosineSamplerBackward.apply(input, grid, gradOut.contiguous(), ctx.offset, ctx.padding_mode, ctx.align_corners, ctx.apply_cosine_step)
 
 
         return d_input, d_grid, None, None, None
@@ -57,15 +57,15 @@ class CosineSampler(torch.autograd.Function):
 
 class CosineSamplerBackward(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, grid, gOut, padding_mode="zeros", align_corners=True, apply_cosine_step='cosine'):
+    def forward(ctx, input, grid, gOut, offset, padding_mode="zeros", align_corners=True, apply_cosine_step='cosine'):
         # print('2st F')
         ctx.align_corners = align_corners
         ctx.apply_cosine_step = apply_cosine_step
         ctx.padding_mode = padding_mode
-        
+        ctx.offset = offset
         
 
-        offset = torch.linspace(0,1-(1/input.shape[0]),input.shape[0]).to("cuda")
+        # offset = torch.linspace(0,1-(1/input.shape[0]),input.shape[0]).to("cuda")
         # print('그라드', input.requires_grad)
 
         gInput, gGrid = _cosine.backward(gOut, input, grid, offset, padding_mode_enum(padding_mode),
@@ -80,21 +80,22 @@ class CosineSamplerBackward(torch.autograd.Function):
         # print('2st B')
         input, grid, gOut = ctx.saved_tensors
 
-        gInput, gGrid, ggOut = CosineSamplerBackwardBackward.apply(input, grid, gOut, gOutInput.contiguous(), gOutGrid.contiguous(), ctx.padding_mode, ctx.align_corners, ctx.apply_cosine_step)
+        gInput, gGrid, ggOut = CosineSamplerBackwardBackward.apply(input, grid, gOut, gOutInput.contiguous(), gOutGrid.contiguous(), ctx.offset, ctx.padding_mode, ctx.align_corners, ctx.apply_cosine_step)
 
 
-        return gInput, gGrid, ggOut, None, None, None
+        return gInput, gGrid, ggOut, None, None, None, None
 
 class CosineSamplerBackwardBackward(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, grid, gOut, gOutInput, gOutGrid, padding_mode="zeros", align_corners=True, apply_cosine_step='cosine'):
+    def forward(ctx, input, grid, gOut, gOutInput, gOutGrid, offset, padding_mode="zeros", align_corners=True, apply_cosine_step='cosine'):
         # print('3st F')
         
         ctx.align_corners = align_corners
         ctx.apply_cosine_step = apply_cosine_step
         ctx.padding_mode = padding_mode
+        ctx.offset = offset
 
-        offset = torch.linspace(0,1-(1/input.shape[0]),input.shape[0]).to("cuda")
+        # offset = torch.linspace(0,1-(1/input.shape[0]),input.shape[0]).to("cuda")
         
         input_requires_grad = gOutInput is not None and (gOutInput != 0.).any().item()
         # print('3F 그라드', input_requires_grad)
@@ -115,17 +116,34 @@ class CosineSamplerBackwardBackward(torch.autograd.Function):
         input, grid, gOut, gOutInput, gOutGrid, gGrid = ctx.saved_tensors
         
 
-        offset = torch.linspace(0,1-(1/input.shape[0]),input.shape[0]).to("cuda")
+        # offset = torch.linspace(0,1-(1/input.shape[0]),input.shape[0]).to("cuda")
         input_requires_grad = gOutgInput is not None and (gOutgInput != 0.).any().item()
         # print('3B 그라드', input_requires_grad)
         # import numpy as np
         # print(np.testing.assert_allclose(gOutgGrid.reshape(-1).detach().cpu().numpy(), gOutGrid.reshape(-1).detach().cpu().numpy(), rtol=1e-2, atol=0))
-        gInput, ggOut2 = _cosine.backward_backward_backward(input, grid, gOut, gOutggOut.contiguous(), gOutGrid, gOutgGrid.contiguous(), offset,
+        
+        # if (gOutgGrid[..., 0]!= 0).any():
+            # print('y 활성화 uyy', gOutgGrid[..., 0][0])
+            # print('         uy', gOutGrid[..., 0][0])
+            # print('gOutgInput', gOutgInput[0, 0, 0, 0])
+            # print('gOutInput', gOutInput[0, 0, 0, 0])
+            # print('gOutggOut', gOutggOut[0, 0, 0, 0], gOutggOut.shape, gOutggOut.reshape(-1).abs().max(), gOutggOut.reshape(-1).abs().min())
+            # print('gOut', gOut[0, 0, 0, 0], gOut.shape, gOut.reshape(-1)[gOutggOut.reshape(-1).abs().argmax()], gOut.reshape(-1)[gOutggOut.reshape(-1).abs().argmin()])
+
+        # elif (gOutgGrid[..., 1][0] !=0).any():
+            # print('x 활성화 uxx', gOutgGrid[..., 1][0])
+            # print('         ux', gOutGrid[..., 1][0])
+            # print('gOutgInput', gOutgInput[0, 0, 0, 0])
+            # print('gOutInput', gOutInput[0, 0, 0, 0])
+            # print('gOutggOut', gOutggOut[0, 0, 0, 0], gOutggOut.shape, gOutggOut.reshape(-1).abs().max(), gOutggOut.reshape(-1).abs().min())
+            # print('gOut', gOut[0, 0, 0, 0], gOut.shape, gOut.reshape(-1)[gOutggOut.reshape(-1).abs().argmax()], gOut.reshape(-1)[gOutggOut.reshape(-1).abs().argmin()])
+        
+        gInput, ggOut2 = _cosine.backward_backward_backward(input, grid, gOut, gOutggOut.contiguous(), gOutGrid, gOutgGrid.contiguous(), ctx.offset,
                                                                     padding_mode_enum(padding_mode), align_corners,
                                                                    apply_cosine_step_mode_enum(apply_cosine_step), input_requires_grad)
         
 
-        return gInput, None, ggOut2, None, None, None, None, None
+        return gInput, None, ggOut2, None, None, None, None, None, None
 
 
 # def source_term( y, x):
@@ -206,13 +224,14 @@ if __name__ == '__main__':
     # u_ic = np.sin(-np.pi * tx_ic[..., 1, np.newaxis])        # u_ic = -sin(pi*x_ic)
     # u_bc = np.zeros((numb, 1))                        # u_bc = 0
     # u_train = torch.tensor(np.concatenate((u_ic, u_bc))).float()
-    yx = np.random.rand(numb, 2)
-    yx[..., 1] = yx[..., 1] *2-1
+    yx = np.random.rand(n_cell, 1, numb, 2)*2-1
+    # yx[..., 1] = yx[..., 1] *2-1
     yx_f = torch.tensor(yx, requires_grad=True).float()
-    y = yx_f[:, 0:1]
-    x = yx_f[:, 1:2]
-    y2 = yx_f[..., 0]
-    x2 = yx_f[..., 1]
+    y = yx_f[:, :, :, 0:1]
+    x = yx_f[:, :, :, 1:2]
+    # y2 = yx_f[..., 0]
+    # x2 = yx_f[..., 1]
+    
     
     # # requires grad
     # y.requires_grad = True
@@ -224,11 +243,11 @@ if __name__ == '__main__':
     y = y.to('cuda')
     # uc = uc.to('cuda')
 
-    grid = torch.cat([y*2-1, x], -1)
+    grid = torch.cat([y, x], -1)
     # grid_ic = torch.cat([yb, xb], -1).to('cuda')
 
     # with torch.no_grad():
-    grid = grid.unsqueeze(0).unsqueeze(0).repeat([n_cell, 1, 1, 1])
+    # grid = grid.unsqueeze(0).unsqueeze(0).repeat([n_cell, 1, 1, 1])
     # grid_ic = grid_ic.unsqueeze(0).unsqueeze(0).repeat([n_cell, 1, 1, 1])
     # grid = grid.unsqueeze(0).unsqueeze(0).repeat([n_cell, 1, 1, 1])
 
@@ -639,7 +658,6 @@ if __name__ == '__main__':
     # u_xx_cell/=96; u_yy_cell/=96
 
     import numpy as np    
-    # print(np.testing.assert_allclose(u2_xx_cell.reshape(-1).detach().cpu().numpy(), u_xx_cell.reshape(-1).detach().cpu().numpy(), rtol=1e-3, atol=0))
     # print(np.testing.assert_allclose(u2_yy_cell.reshape(-1).detach().cpu().numpy(), u_yy_cell.reshape(-1).detach().cpu().numpy(), rtol=4e-4, atol=0))
     # print(np.testing.assert_allclose(u2_x.reshape(-1).detach().cpu().numpy(), u_x.reshape(-1).detach().cpu().numpy(), rtol=1.5e-1, atol=0))
     # print(np.testing.assert_allclose(u2_y.reshape(-1).detach().cpu().numpy(), u_y.reshape(-1).detach().cpu().numpy(), rtol=8e-2, atol=0))
@@ -674,7 +692,7 @@ if __name__ == '__main__':
     # print('u_xxx == u2_xxx: {}, max_error: {} at {}'.format(((u_xxx.reshape(-1)-u2_xxx.reshape(-1)).abs()<1e-4).sum()==(number),(u_xxx.reshape(-1)-u2_xxx.reshape(-1)).abs().max(),(u_xxx.reshape(-1)-u2_xxx.reshape(-1)).abs().argmax()))
     # print('u_yyy == u2_yyy: {}, max_error: {} at {}'.format(((u_yyy.reshape(-1)-u2_yyy.reshape(-1)).abs()<1e-4).sum()==(number),(u_yyy.reshape(-1)-u2_yyy.reshape(-1)).abs().max(),(u_yyy.reshape(-1)-u2_yyy.reshape(-1)).abs().argmax()))
 
-    torch.set_printoptions(threshold=100000*16*4)
+    # torch.set_printoptions(threshold=100000*16*4)
     # different = u_xx.squeeze() - u2_xx.squeeze()
 
     f2_pred = u2_y + val2.to('cuda')*u2_x -(0.01/np.pi)*u2_xx #u2_y*2 + 5*(val2.to('cuda')**3) - 5*val2.to('cuda') - 0.0001*u2_xx 
@@ -727,4 +745,5 @@ if __name__ == '__main__':
     
     print('dloss error: ',np.testing.assert_allclose((dloss).reshape(-1).detach().cpu().numpy(), (dloss2).reshape(-1).detach().cpu().numpy(), rtol=1e-2, atol=0))
 
+    print(np.testing.assert_allclose(u2_xx_cell.reshape(-1).detach().cpu().numpy(), u_xx_cell.reshape(-1).detach().cpu().numpy(), rtol=1e-3, atol=0))
     exit(1)

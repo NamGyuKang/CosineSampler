@@ -632,7 +632,7 @@ __global__ void cosine_sampler_backward_backward_kernel(
                                     dx_left_2nd_derivative, dy_top_2nd_derivative}};
 
         scalar_t surface_coefficients[4] = {};
-        scalar_t out_derivatives[6][4] = {};
+        scalar_t out_derivatives[4][4] = {};
 
         #pragma unroll
         for (int shift = 0; shift < 4; shift++) {
@@ -642,11 +642,11 @@ __global__ void cosine_sampler_backward_backward_kernel(
         surface_coefficients[shift] = pos_corners[px][0] * pos_corners[py][1]; // 
         out_derivatives[0][shift] = pos_corners[py][1] * pos_corners[px][2]; // dOut_dx / surf_weight
         out_derivatives[1][shift] = pos_corners[py][1] * pos_corners[px][4]; // d2Out_dx2 / surf_weight
-        out_derivatives[2][shift] = pos_corners[py][3] * pos_corners[px][2]; // d2Out_dxdy / surf_weight
+        // out_derivatives[2][shift] = pos_corners[py][3] * pos_corners[px][2]; // d2Out_dxdy / surf_weight
 
-        out_derivatives[3][shift] = pos_corners[px][0] * pos_corners[py][3]; // dOut_dy / surf_weight
-        out_derivatives[4][shift] = pos_corners[px][0] * pos_corners[py][5]; // d2Out_dy2 / surf_weight
-        out_derivatives[5][shift] = pos_corners[px][2] * pos_corners[py][3]; // d2Out_dydx / surf_weight
+        out_derivatives[2][shift] = pos_corners[px][0] * pos_corners[py][3]; // dOut_dy / surf_weight
+        out_derivatives[3][shift] = pos_corners[px][0] * pos_corners[py][5]; // d2Out_dy2 / surf_weight
+        // out_derivatives[5][shift] = pos_corners[px][2] * pos_corners[py][3]; // d2Out_dydx / surf_weight
         }
 
         scalar_t d2L_dix2 = static_cast<scalar_t>(0), d2L_diy2 = static_cast<scalar_t>(0);
@@ -679,10 +679,10 @@ __global__ void cosine_sampler_backward_backward_kernel(
             // Slightly unprecise naming: in fact these are divided by surf_weight.
             scalar_t dOut_dx = out_derivatives[0][shift]; // E.g. variable "dOut_dx" is mathematically "dOut/dx * 1/surf_weight"
             scalar_t d2Out_dx2 = out_derivatives[1][shift];
-            scalar_t d2Out_dxdy = out_derivatives[2][shift];
-            scalar_t dOut_dy = out_derivatives[3][shift];
-            scalar_t d2Out_dy2 = out_derivatives[4][shift];
-            scalar_t d2Out_dydx = out_derivatives[5][shift];
+            // scalar_t d2Out_dxdy = out_derivatives[2][shift];
+            scalar_t dOut_dy = out_derivatives[2][shift];
+            scalar_t d2Out_dy2 = out_derivatives[3][shift];
+            // scalar_t d2Out_dydx = out_derivatives[5][shift];
             scalar_t surface_coeff = surface_coefficients[shift];
 
         if (at::native::within_bounds_2d(iy, ix, inp_H, inp_W)) {
@@ -881,7 +881,7 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
         // out_derivatives[5][shift] = pos_corners[px][0] * pos_corners[py][7]; // d3Out_dy3 / surf_weight
         }
 
-        scalar_t d3L_dix3 = static_cast<scalar_t>(0), d3L_diy3 = static_cast<scalar_t>(0);
+        scalar_t ggOut_delta = static_cast<scalar_t>(0);//, d3L_dix3 = static_cast<scalar_t>(0), d3L_diy3 = static_cast<scalar_t>(0);
         index_t offset_out_DHW =  h * gOut_sH + w * gOut_sW;
         scalar_t *gOut_ptr_NCDHW = gOut.data + n * gOut_sN + offset_out_DHW;
 
@@ -939,8 +939,12 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
             scalar_t gOutgGrid_y = gOutgGrid_ptr_NDHW[1];
             //////////////////////////////////////////////
             
-
-            scalar_t ggOut_delta =  surf_weight * (d2Out_dx2 * gOutgGrid_x*gOutGrid_x + d2Out_dy2 * gOutgGrid_y*gOutGrid_y); // (dOut_dx * gOutgGrid_x + dOut_dy * gOutgGrid_y) +  
+            if (gOutgGrid_x ==1 && gOutGrid_x !=1){
+              printf("????!!!");
+              //  ggOut_delta =  surf_weight * (d2Out_dx2 * gOutgGrid_x*gOutGrid_x + d2Out_dy2 * gOutgGrid_y*gOutGrid_y); // (dOut_dx * gOutgGrid_x + dOut_dy * gOutgGrid_y) +  
+            }else{
+               ggOut_delta =  surf_weight * (d2Out_dx2 * gOutgGrid_x*gOutGrid_x + d2Out_dy2 * gOutgGrid_y*gOutGrid_y); // (dOut_dx * gOutgGrid_x + dOut_dy * gOutgGrid_y) +  
+            }
 
             // if (gOutgInput_ptr_NC != NULL) {
             //     scalar_t gOutgInput = gOutgInput_ptr_NC[inp_el];
