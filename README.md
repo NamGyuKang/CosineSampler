@@ -10,7 +10,8 @@ We do really appreciate your comments. As you understood correctly, the step siz
 ## __There should be a t^, instead of y^ in Equation (2), between line 64 and 65. The paper should clearly state the bounds of the spatial and temporal domains__<br>
 If we get accepted, we will modify and add more detailed information.
 
-## __Furthermore, it would be interesting to see experiments with decreasing number of channels c and number of grids M.__
+## __Furthermore, it would be interesting to see experiments with decreasing number of channels c and number of grids M.__<br>
+
 |M\c|1|2|3|4|5|6|7|8|
 |:---:||:---:||:---:||:---:||:---:||:---:||:---:||:---:||:---:|
 |4||8.70e-02||1.58e-02||7.24e-03||2.79e-02||1.92e-03||1.65e-03||1.53e-03||1.35e-03|
