@@ -22,7 +22,7 @@ If we get accepted, we will modify and add more detailed information.
 |64|8.53e-02|2.76e-02|1.85e-03|9.88e-04|8.53e-04|7.64e-04|5.71e-04|4.89e-04|
 |80|8.43e-02|2.75e-02|2.58e-03|9.38e-04|8.27e-04|1.25e-03|9.42e-04|5.01e-04|
 |96|8.41e-02|3.14e-02|1.92e-03|6.49e-04|6.72e-04|5.36e-04|7.74e-04|5.68e-04|
-|112|2.50e-02|2.50e-02|1.81e-03|8.32e-04|2.63e-03|6.26e-04|5.51e-04|4.46e-04|
+|112|8.37e-02|2.50e-02|1.81e-03|8.32e-04|2.63e-03|6.26e-04|5.51e-04|4.46e-04|
 
 <br>
 It is the best performance of the Burgers equation with different multigrid and channels until 200 iterations. As shown in the above table, channel sizes less than four performed poorly. More channels (>4) improved the performance, but the gain was marginal.  
