@@ -7,7 +7,7 @@ The cell representations will be the inputs to an MLP, and the channel size of c
 ## __Some readers with background from numerical mathematics / numerical linear algebra might relate the term multigrid to the multigrid method for solving linear systems arising from the discretization of PDEs.__<br>
 We do really appreciate your comments. As you understood correctly, the step size (or the number of discretization points) is constant in the proposed method. Variable step size will be an exciting research direction we would like to explore in the near future. 
 
-## __There should be a t^, instead of y^ in Equation (2), between line 64 and 65. The paper should clearly state the bounds of the spatial and temporal domains__<br>
+## __There should be a $\hat{t}$, instead of $\hat{y}$ in Equation (2), between line 64 and 65. The paper should clearly state the bounds of the spatial and temporal domains__<br>
 If we get accepted, we will modify and add more detailed information.
 
 ## __Furthermore, it would be interesting to see experiments with decreasing number of channels c and number of grids M.__<br>
