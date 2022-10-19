@@ -1,7 +1,7 @@
 # CosineSampler
 
 
-## __The reason for using both channel size and multi-grid__<br>
+## __The reason for using both channel size $c$ and multigrid size $M$.__<br>
 The cell representations will be the inputs to an MLP, and the channel size of cell representations is the input dimension of the MLP. It also has to do with the output dimension of PDE solutions (the higher the output dimensions of PDE solutions, the more input channels might be required). We empirically found the channel size showing good accuracy and computation tradeoffs.
 
 ## __Some readers with background from numerical mathematics / numerical linear algebra might relate the term multigrid to the multigrid method for solving linear systems arising from the discretization of PDEs.__<br>
