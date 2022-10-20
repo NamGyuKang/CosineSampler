@@ -114,9 +114,9 @@ class CosineSamplerBackwardBackward(torch.autograd.Function):
         gInput, ggOut2 = _cosine.backward_backward_backward(input, grid, gOut, gOutggOut.contiguous(), gOutGrid, gOutgGrid.contiguous(), ctx.offset,
                                                                     padding_mode_enum(padding_mode), align_corners,
                                                                    apply_cosine_step_mode_enum(apply_cosine_step), input_requires_grad)
-        tinput, tgrid, tgout = CosineSamplerBackwardBackward.apply(input, grid, gOutggOut.contiguous(), torch.ones_like(gOutgInput), gOutGrid, ctx.offset)
-        # print(tinput.reshape(-1)[0], '------------------target-------------------------')
-        return gInput+tinput, None, ggOut2, None, None, None, None, None, None
+        b_input, b_grid, b_gout = CosineSamplerBackwardBackward.apply(input, grid, gOutggOut.contiguous(), torch.ones_like(gOutgInput), gOutGrid, ctx.offset)
+
+        return gInput+b_input, None, ggOut2, None, None, None, None, None, None
 
 
 # def source_term( y, x):
