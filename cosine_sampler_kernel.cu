@@ -232,7 +232,6 @@ static inline __device__ scalar_t grid_sampler_compute_source_index_set_grad(
 
 __device__ inline float smoothstep(float val) {
 	return val * val * (3.0f - 2.0f * val);
-  // return 0.5*(1-cos(CUDART_PI_F*val));
 }
 
 __device__ inline float smoothstep_derivative(float val) {
@@ -254,9 +253,6 @@ __device__ inline float cosine_derivative(float val) {
 __device__ inline float cosine_2nd_derivative(float val) {
 	return  0.5f * CUDART_PI_F * CUDART_PI_F *cos(CUDART_PI_F*val);
 }
-__device__ inline float cosine_3rd_derivative(float val) {
-	return  -0.5f * CUDART_PI_F * CUDART_PI_F * CUDART_PI_F *sin(CUDART_PI_F*val);
-}
 
 
 
@@ -269,8 +265,7 @@ template <typename scalar_t, typename index_t>
     at::cuda::detail::TensorInfo<scalar_t, index_t> output,
     at::cuda::detail::TensorInfo<scalar_t, index_t> offset,
     const at::native::detail::GridSamplerPadding padding_mode,
-    bool align_corners,
-    bool apply_cosine_step){
+    bool align_corners){
 
         index_t C = input.sizes[1];
         index_t inp_H = input.sizes[2];
@@ -289,7 +284,6 @@ template <typename scalar_t, typename index_t>
         index_t out_sC = output.strides[1];
         index_t out_sH = output.strides[2];
         index_t out_sW = output.strides[3];
-        
         index_t off_sN = offset.strides[0];
 
         CUDA_KERNEL_LOOP_TYPE(index, nthreads, index_t) {
@@ -302,13 +296,6 @@ template <typename scalar_t, typename index_t>
             scalar_t x = grid.data[grid_offset];
             scalar_t y = grid.data[grid_offset + grid_sCoor];
 
-
-            // int a = threadIdx.x;
-            // int b = blockIdx.x;
-
-            // if (a ==0 && b == 0) {
-            //     printf("%d", sizeof(offset.data[n * off_sN]));
-            // }
             scalar_t ix = grid_sampler_compute_source_index(x, inp_W, padding_mode, 1, offset.data[n * off_sN]); //at::native::
             scalar_t iy = grid_sampler_compute_source_index(y, inp_H, padding_mode, 1, offset.data[n * off_sN]);
 
@@ -317,13 +304,9 @@ template <typename scalar_t, typename index_t>
             index_t ix_right = ix_left +1;
             index_t iy_bottom = iy_top +1;
 
-            scalar_t dx_right = ix_right - ix;
-            scalar_t dy_bottom = iy_bottom - iy;
+            scalar_t dx_right = cosine(ix_right - ix);
+            scalar_t dy_bottom = cosine(iy_bottom - iy);
 
-            if(apply_cosine_step){
-                dx_right = cosine(ix_right - ix);
-                dy_bottom = cosine(iy_bottom - iy);
-            }
             scalar_t dx_left = 1.0f - dx_right;
             scalar_t dy_top = 1.0f - dy_bottom;
 
@@ -350,7 +333,6 @@ template <typename scalar_t, typename index_t>
                     *out_ptr_NCHW += inp_ptr_NC[iy_bottom*inp_sH + ix_right*inp_sW] * se;
                 }
             }
-
     }
 }
 
@@ -367,7 +349,6 @@ __global__ void cosine_sampler_backward_kernel(
     at::cuda::detail::TensorInfo<scalar_t, index_t> offset,
     const at::native::detail::GridSamplerPadding padding_mode,
     bool align_corners,
-    bool apply_cosine_step,
     const index_t grad_input_memory_span,
     const bool input_requires_grad) {
 
@@ -388,7 +369,6 @@ __global__ void cosine_sampler_backward_kernel(
     index_t gOut_sC = grad_output.strides[1];
     index_t gOut_sH = grad_output.strides[2];
     index_t gOut_sW = grad_output.strides[3];
-    // gInp_* (and NC_offset below) are not really needed if input_requires_grad is false.
     int64_t gInp_sN = 0;
     int64_t gInp_sC = 0;
     int64_t gInp_sH = 0;
@@ -417,39 +397,32 @@ __global__ void cosine_sampler_backward_kernel(
       scalar_t ix = grid_sampler_compute_source_index_set_grad(x, inp_W, padding_mode, align_corners, &gix_mult, offset.data[n * off_sN]);
       scalar_t iy = grid_sampler_compute_source_index_set_grad(y, inp_H, padding_mode, align_corners, &giy_mult, offset.data[n * off_sN]);
 
-      // if (interpolation_mode == GridSamplerInterpolation::Bilinear) {
         // get NE, NW, SE, SW pixel values from (x, y)
         index_t ix_left = static_cast<index_t>(::floor(ix));
         index_t iy_top = static_cast<index_t>(::floor(iy));
         index_t ix_right = ix_left + 1;
         index_t iy_bottom = iy_top + 1;
 
-        scalar_t dx_right = ix_right - ix; // ix - ix_left; // ix_right - ix;
-        scalar_t dy_bottom = iy_bottom - iy;// iy - iy_top; // iy_bottom - iy;
+        scalar_t dx_right = ix_right - ix; 
+        scalar_t dy_bottom = iy_bottom - iy;
     
+        // float dx_right_derivative = 1.0f;
+        // float dy_bottom_derivative = 1.0f;
 
+        float dx_right_derivative = cosine_derivative(dx_right);
+        float dy_bottom_derivative = cosine_derivative(dy_bottom);
 
-        float dx_right_derivative = 1.0f;
-        float dy_bottom_derivative = 1.0f;
-
-        if (apply_cosine_step) {
-          dx_right_derivative = cosine_derivative(dx_right);
-          dy_bottom_derivative = cosine_derivative(dy_bottom);
-          dx_right = cosine(dx_right);
-          dy_bottom = cosine(dy_bottom);
-        }
-        // } elif(apply_cosine_step){
-        //   dx_right = smoothstep(ix_right - ix);
-        //   dy_bottom = smoothstep(iy_bottom - iy);
-        // }
+        dx_right = cosine(dx_right);
+        dy_bottom = cosine(dy_bottom);
+        
         scalar_t dx_left = 1.0f - dx_right;
         scalar_t dy_top = 1.0f - dy_bottom;
 
         // get surfaces to each neighbor:
-        scalar_t nw = dx_right * dy_bottom; //(ix_right - ix)    * (iy_bottom - iy);  
-        scalar_t ne = dx_left * dy_bottom; //(ix    - ix_left) * (iy_bottom - iy);  
-        scalar_t sw =  dx_right * dy_top; //(ix_right - ix)    * (iy    - iy_top);
-        scalar_t se =  dx_left * dy_top; //(ix    - ix_left) * (iy    - iy_top);
+        scalar_t nw = dx_right * dy_bottom;   
+        scalar_t ne = dx_left * dy_bottom;  
+        scalar_t sw =  dx_right * dy_top; 
+        scalar_t se =  dx_left * dy_top; 
 
         scalar_t gix = static_cast<scalar_t>(0), giy = static_cast<scalar_t>(0);
         scalar_t *gOut_ptr_NCHW = grad_output.data + n * gOut_sN + h * gOut_sH + w * gOut_sW;
@@ -458,7 +431,7 @@ __global__ void cosine_sampler_backward_kernel(
         if (input_requires_grad) {
               NC_offset = n * gInp_sN;
          }
-        // index_t NC_offset = n * gInp_sN;
+
         scalar_t *inp_ptr_NC = input.data + n * inp_sN;
         for (index_t c = 0; c < C; ++c, inp_ptr_NC += inp_sC, NC_offset += gInp_sC, gOut_ptr_NCHW += gOut_sC) {
           scalar_t gOut = *gOut_ptr_NCHW;
@@ -492,7 +465,6 @@ __global__ void cosine_sampler_backward_kernel(
             gix += se_val *  (1-dy_bottom)* gOut; 
             giy += se_val *  (1-dx_right)* gOut; 
           }
-        // }
 
         // assuming grad_grid is contiguous
         // thus we can
@@ -521,7 +493,6 @@ __global__ void cosine_sampler_backward_backward_kernel(
     at::cuda::detail::TensorInfo<scalar_t, index_t> offset,
     const at::native::detail::GridSamplerPadding padding_mode,
     bool align_corners,
-    bool apply_cosine_step,
     bool input_requires_grad,
     const index_t gInput_memory_span,
     const index_t ggOut_memory_span) {
@@ -552,15 +523,8 @@ __global__ void cosine_sampler_backward_backward_kernel(
     index_t gOutInput_sN = 0;
     index_t gOutInput_sC = 0;
 
-    // index_t gGrid_sN = gGrid.strides[0]; // 원래 3
-    // index_t gGrid_sH = gGrid.strides[1]; // 원래 3
-    index_t gGrid_sW = gGrid.strides[2]; // 원래 3
-    // index_t gGrid_sCoor = gGrid.strides[3]; // 원래 3
-
-    // index_t gOutGrid_sN = gOutGrid.strides[0]; // 원래 3
-    // index_t gOutGrid_sH = gOutGrid.strides[1]; // 원래 3
-    index_t gOutGrid_sW = gOutGrid.strides[2]; // 원래 3
-    // index_t gOutGrid_sCoor = gOutGrid.strides[3]; // 원래 3
+    index_t gGrid_sW = gGrid.strides[2]; 
+    index_t gOutGrid_sW = gOutGrid.strides[2]; 
 
     if (input_requires_grad) {
         gOutInput_sN = gOutInput.strides[0];
@@ -577,9 +541,6 @@ __global__ void cosine_sampler_backward_backward_kernel(
         const index_t h = (index / out_W) % out_H;
         const index_t n = index / (out_H * out_W);
         const auto grid_offset = n * grid_sN + h * grid_sH + w * grid_sW;
-        // const auto gOutGrid_offset = n * gOutGrid_sN + h * gOutGrid_sH + w * gOutGrid_sW;
-        // const auto gGrid_offset = n * gGrid_sN + h * gGrid_sH + w * gGrid_sW;
-
 
         scalar_t x = grid.data[grid_offset];
         scalar_t y = grid.data[grid_offset + grid_sCoor];
@@ -589,7 +550,6 @@ __global__ void cosine_sampler_backward_backward_kernel(
         scalar_t ix = grid_sampler_compute_source_index_set_grad(x, inp_W, padding_mode, align_corners, &dL_dix_mult, offset.data[n * off_sN]);
         scalar_t iy = grid_sampler_compute_source_index_set_grad(y, inp_H, padding_mode, align_corners, &dL_diy_mult, offset.data[n * off_sN]);
 
-        // if (interpolation_mode == GridSamplerInterpolation::Bilinear) {
         // get NE, NW, SE, SW pixel values from (x, y)
         index_t ix_left = static_cast<index_t>(::floor(ix));
         index_t iy_top = static_cast<index_t>(::floor(iy));
@@ -599,26 +559,22 @@ __global__ void cosine_sampler_backward_backward_kernel(
         scalar_t dx_right = ix_right - ix; 
         scalar_t dy_bottom = iy_bottom - iy;
     
-        float dx_right_2nd_derivative = 0.0f;
-        float dy_bottom_2nd_derivative = 0.0f;
+        
+        float dx_right_2nd_derivative = dL_dix_mult * dL_dix_mult * cosine_2nd_derivative(dx_right);
+        float dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * cosine_2nd_derivative(dy_bottom);
 
-        float dx_right_derivative = -dL_dix_mult;
-        float dy_bottom_derivative = -dL_diy_mult;
+        float dx_right_derivative = -dL_dix_mult * cosine_derivative(dx_right);
+        float dy_bottom_derivative = -dL_diy_mult * cosine_derivative(dy_bottom);
 
-        if (apply_cosine_step) {
-            dx_right_2nd_derivative = dL_dix_mult * dL_dix_mult * cosine_2nd_derivative(dx_right);
-            dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * cosine_2nd_derivative(dy_bottom);
-            dx_right_derivative *= cosine_derivative(dx_right);
-            dy_bottom_derivative *= cosine_derivative(dy_bottom);
-
-            dx_right = cosine(dx_right);
-            dy_bottom = cosine(dy_bottom);
-        }
+        dx_right = cosine(dx_right);
+        dy_bottom = cosine(dy_bottom);
 
         scalar_t dx_left = 1.0f - dx_right;
         scalar_t dy_top = 1.0f - dy_bottom;
+
         scalar_t dx_left_derivative = -dx_right_derivative;
         scalar_t dy_top_derivative = -dy_bottom_derivative;
+
         scalar_t dx_left_2nd_derivative = -dx_right_2nd_derivative;
         scalar_t dy_top_2nd_derivative = -dy_bottom_2nd_derivative;
 
@@ -696,11 +652,11 @@ __global__ void cosine_sampler_backward_backward_kernel(
             scalar_t gOutGrid_y = gOutGrid_ptr_NDHW[1];
 
             scalar_t ggOut_delta = surf_weight * (dOut_dx * gOutGrid_x
-                                                        + dOut_dy * gOutGrid_y); // u_x_C
+                                                        + dOut_dy * gOutGrid_y); 
 
             if (gOutInput_ptr_NC != NULL) {
                 scalar_t gOutInput = gOutInput_ptr_NC[inp_el];
-                ggOut_delta += gOutInput * surface_coeff; // u_c
+                ggOut_delta += gOutInput * surface_coeff; 
                 // d2L_dix2 += dL_dx * gOutInput;
                 // d2L_diy2 += dL_dy * gOutInput;
             }
@@ -711,11 +667,9 @@ __global__ void cosine_sampler_backward_backward_kernel(
                                         ggOut_delta,
                                         true);
             
-            // u_xx, u_yy
             d2L_dix2 += surf_weight * gOut * (d2Out_dx2 * gOutGrid_x);
             d2L_diy2 += surf_weight * gOut * (d2Out_dy2 * gOutGrid_y);
 
-            // at::native::safe_add_2d(grad_input.data, iy, ix, gInp_sH, gInp_sW, inp_H, inp_W, dL_dx * gOutGrid_x + dL_dy * gOutGrid_y, NC_offset_inp, grad_input_memory_span);
             
             // cell로 미분
             add_2d(gInput.data, iy, ix, gInp_sH, gInp_sW, dL_dx * gOutGrid_x + dL_dy * gOutGrid_y, NC_offset_inp, gInput_memory_span);
@@ -747,7 +701,6 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
     at::cuda::detail::TensorInfo<scalar_t, index_t> offset,
     const at::native::detail::GridSamplerPadding padding_mode,
     bool align_corners,
-    bool apply_cosine_step,
     bool input_requires_grad,
     const index_t gInput_memory_span,
     const index_t ggOut_memory_span) {
@@ -780,17 +733,9 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
 
     index_t off_sN = offset.strides[0];
 
-    // index_t gOutgInput_sN = 0;
-    // index_t gOutgInput_sC = 0;
 
-    // index_t gGrid_sW = gGrid.strides[2]; // 원래 3
-    index_t gOutGrid_sW = gOutGrid.strides[2]; // 원래 3
+    index_t gOutGrid_sW = gOutGrid.strides[2]; 
     index_t gOutgGrid_sW = gOutgGrid.strides[2];
-
-    // if (input_requires_grad) {
-    //     gOutgInput_sN = gOutgInput.strides[0];
-    //     gOutgInput_sC = gOutgInput.strides[1];
-    // }
 
     index_t gInp_sN = gInput.strides[0];
     index_t gInp_sC = gInput.strides[1];
@@ -812,7 +757,6 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
         scalar_t ix = grid_sampler_compute_source_index_set_grad(x, inp_W, padding_mode, align_corners, &dL_dix_mult, offset.data[n * off_sN]);
         scalar_t iy = grid_sampler_compute_source_index_set_grad(y, inp_H, padding_mode, align_corners, &dL_diy_mult, offset.data[n * off_sN]);
 
-        // if (interpolation_mode == GridSamplerInterpolation::Bilinear) {
         // get NE, NW, SE, SW pixel values from (x, y)
         index_t ix_left = static_cast<index_t>(::floor(ix));
         index_t iy_top = static_cast<index_t>(::floor(iy));
@@ -821,60 +765,37 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
 
         scalar_t dx_right = ix_right - ix; 
         scalar_t dy_bottom = iy_bottom - iy;
-    
-        float dx_right_2nd_derivative = 0.0f;
-        float dy_bottom_2nd_derivative = 0.0f;
 
-        float dx_right_derivative = -dL_dix_mult;
-        float dy_bottom_derivative = -dL_diy_mult;
-
+        float dx_right_2nd_derivative = dL_dix_mult * dL_dix_mult * cosine_2nd_derivative(dx_right);
+        float dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * cosine_2nd_derivative(dy_bottom);
         
-        if (apply_cosine_step) {
-
-            dx_right_2nd_derivative = dL_dix_mult * dL_dix_mult * cosine_2nd_derivative(dx_right);
-            dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * cosine_2nd_derivative(dy_bottom);
-            dx_right_derivative *= cosine_derivative(dx_right);
-            dy_bottom_derivative *= cosine_derivative(dy_bottom);
-
-            dx_right = cosine(dx_right);
-            dy_bottom = cosine(dy_bottom);
-        }
+        dx_right = cosine(dx_right);
+        dy_bottom = cosine(dy_bottom);
+        
 
         scalar_t dx_left = 1.0f - dx_right;
         scalar_t dy_top = 1.0f - dy_bottom;
-        scalar_t dx_left_derivative = -dx_right_derivative;
-        scalar_t dy_top_derivative = -dy_bottom_derivative;
         scalar_t dx_left_2nd_derivative = -dx_right_2nd_derivative;
         scalar_t dy_top_2nd_derivative = -dy_bottom_2nd_derivative;
 
         index_t index_corners[2][2] = {{ix_left, iy_top},
                                         {ix_right, iy_bottom}};
         scalar_t pos_corners[2][6] = {{dx_right, dy_bottom,
-                                    dx_right_derivative, dy_bottom_derivative,
                                     dx_right_2nd_derivative, dy_bottom_2nd_derivative},
                                     {dx_left, dy_top,
-                                    dx_left_derivative, dy_top_derivative,
                                     dx_left_2nd_derivative, dy_top_2nd_derivative}};
 
-        // scalar_t surface_coefficients[4] = {};
-        scalar_t out_derivatives[4][4] = {};
+        scalar_t out_derivatives[2][4] = {};
 
         #pragma unroll
         for (int shift = 0; shift < 4; shift++) {
         int px = (shift >> 0) & 1;  // 0 1 0 1
         int py = (shift >> 1) & 1;  // 0 0 1 1
 
-        // surface_coefficients[shift] = pos_corners[px][0] * pos_corners[py][1]; // 
-        out_derivatives[0][shift] = pos_corners[py][1] * pos_corners[px][2]; // dOut_dx / surf_weight
-        out_derivatives[1][shift] =  pos_corners[py][1] * pos_corners[px][4]; // d2Out_dx2 / surf_weight
-        // out_derivatives[2][shift] = pos_corners[py][1] * pos_corners[px][6]; // d3Out_dx3 / surf_weight
-
-        out_derivatives[2][shift] = pos_corners[px][0] * pos_corners[py][3]; // dOut_dy / surf_weight
-        out_derivatives[3][shift] = pos_corners[px][0] * pos_corners[py][5]; // d2Out_dy2 / surf_weight
-        // out_derivatives[5][shift] = pos_corners[px][0] * pos_corners[py][7]; // d3Out_dy3 / surf_weight
+        out_derivatives[0][shift] =  pos_corners[py][1] * pos_corners[px][2]; // d2Out_dx2 / surf_weight
+        out_derivatives[1][shift] = pos_corners[px][0] * pos_corners[py][3]; // d2Out_dy2 / surf_weight
         }
 
-        scalar_t ggOut_delta = static_cast<scalar_t>(0);//, d3L_dix3 = static_cast<scalar_t>(0), d3L_diy3 = static_cast<scalar_t>(0);
         index_t offset_out_DHW =  h * gOut_sH + w * gOut_sW;
         scalar_t *gOut_ptr_NCDHW = gOut.data + n * gOut_sN + offset_out_DHW;
 
@@ -885,24 +806,18 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
         index_t NC_offset_out = n * gOut_sN;
         scalar_t *inp_ptr_NC = input.data + n * inp_sN;
 
-        // scalar_t *gOutgInput_ptr_NC = NULL;
-
-        // if (input_requires_grad) {
-        //     gOutgInput_ptr_NC = gOutgInput.data + n * gOutgInput_sN;
-        // }
 
         scalar_t *gOutGrid_ptr_NDHW = gOutGrid.data +  index * gOutGrid_sW;
         
-        //////////////////////////////////////////////
+
         scalar_t *gOutgGrid_ptr_NDHW = gOutgGrid.data +  index * gOutgGrid_sW;
-        //////////////////////////////////////////////
-        // scalar_t *gGrid_ptr_NDHW = gGrid.data + index * gGrid_sW;
+
     for (index_t c = 0; c < C; ++c, gOut_ptr_NCDHW += gOut_sC, gOutggOut_ptr_NCDHW += gOutggOut_sC, inp_ptr_NC += inp_sC, NC_offset_inp += gInp_sC, NC_offset_out += gOut_sC) {
         scalar_t gOut = *gOut_ptr_NCDHW;
         scalar_t gOutggOut_scalar = *gOutggOut_ptr_NCDHW;
 
         #pragma unroll
-        for (int shift = 0; shift < 4; shift++) { // 0, 1, 2, 3
+        for (int shift = 0; shift < 4; shift++) { 
             int px = (shift >> 0) & 1;              // [0, 1, 0, 1]
             int py = (shift >> 1) & 1;              // [0, 0, 1, 1]
 
@@ -910,41 +825,21 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
             index_t iy = index_corners[py][1]; // t t b b
                                             // -> nw ne sw se
             // Slightly unprecise naming: in fact these are divided by surf_weight.
-            scalar_t dOut_dx = out_derivatives[0][shift]; // E.g. variable "dOut_dx" is mathematically "dOut/dx * 1/surf_weight"
-            scalar_t d2Out_dx2 = out_derivatives[1][shift];
-            // scalar_t d3Out_dx3 = out_derivatives[2][shift];
-            scalar_t dOut_dy = out_derivatives[2][shift];
-            scalar_t d2Out_dy2 = out_derivatives[3][shift];
-            // scalar_t d3Out_dy3 = out_derivatives[5][shift];
-            // scalar_t surface_coeff = surface_coefficients[shift];
+            // E.g. variable "d2Out_dx2" is mathematically "d2Out/dx2 * 1/surf_weight"
+            scalar_t d2Out_dx2 = out_derivatives[0][shift];
+            scalar_t d2Out_dy2 = out_derivatives[1][shift];
 
         if (at::native::within_bounds_2d(iy, ix, inp_H, inp_W)) {
             index_t inp_el = iy * inp_sH + ix * inp_sW;
             scalar_t surf_weight = inp_ptr_NC[inp_el];
 
-            // scalar_t dL_dx = gOut * dOut_dx;
-            // scalar_t dL_dy = gOut * dOut_dy;
 
             scalar_t gOutGrid_x = gOutGrid_ptr_NDHW[0];
             scalar_t gOutGrid_y = gOutGrid_ptr_NDHW[1];
-            //////////////////////////////////////////////
             scalar_t gOutgGrid_x = gOutgGrid_ptr_NDHW[0];
             scalar_t gOutgGrid_y = gOutgGrid_ptr_NDHW[1];
-            //////////////////////////////////////////////
             
-            if (gOutgGrid_x ==1 && gOutGrid_x !=1){
-              printf("????!!!");
-              //  ggOut_delta =  surf_weight * (d2Out_dx2 * gOutgGrid_x*gOutGrid_x + d2Out_dy2 * gOutgGrid_y*gOutGrid_y); // (dOut_dx * gOutgGrid_x + dOut_dy * gOutgGrid_y) +  
-            }else{
-               ggOut_delta =  surf_weight * (d2Out_dx2 * gOutgGrid_x*gOutGrid_x + d2Out_dy2 * gOutgGrid_y*gOutGrid_y); // (dOut_dx * gOutgGrid_x + dOut_dy * gOutgGrid_y) +  
-            }
-
-            // if (gOutgInput_ptr_NC != NULL) {
-            //     scalar_t gOutgInput = gOutgInput_ptr_NC[inp_el];
-            //     ggOut_delta += gOutgInput*(dOut_dx * gOutGrid_x + dOut_dy * gOutGrid_y) ; // u_c
-            //     // d2L_dix2 += dL_dx * gOutInput;
-            //     // d2L_diy2 += dL_dy * gOutInput;
-            // }
+           scalar_t ggOut_delta =  surf_weight * (d2Out_dx2 * gOutgGrid_x*gOutGrid_x + d2Out_dy2 * gOutgGrid_y*gOutGrid_y); 
 
             at::native::fastAtomicAdd(ggOut.data,
                                         NC_offset_out + offset_out_DHW,
@@ -952,23 +847,12 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
                                         ggOut_delta,
                                         true);
             
-            // u_xx, u_yy
-            // scalar_t d2L_dix2 = (d2Out_dx2);
-            // scalar_t d2L_diy2 = (d2Out_dy2);
             
-            // d3L_dix3 += gOut *  (d3Out_dx3)* gOutgGrid_x ;
-            // d3L_diy3 += gOut *  (d3Out_dy3)* gOutgGrid_y ;
-
-            // at::native::safe_add_2d(grad_input.data, iy, ix, gInp_sH, gInp_sW, inp_H, inp_W, dL_dx * gOutGrid_x + dL_dy * gOutGrid_y, NC_offset_inp, grad_input_memory_span);
-            
-            // cell로 미분
             add_2d(gInput.data, iy, ix, gInp_sH, gInp_sW,  gOut * (d2Out_dx2 * gOutgGrid_x *gOutGrid_x + d2Out_dy2 * gOutgGrid_y*gOutGrid_y), NC_offset_inp, gInput_memory_span);
         }
       }
     }
 
-    // gGrid_ptr_NDHW[0] = d3L_dix3;
-    // gGrid_ptr_NDHW[1] = d3L_diy3;
   }
 }
 
@@ -978,7 +862,7 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
 
 void launch_cosine_sampler_forward_kernel(
     const torch::TensorBase &output, const torch::TensorBase &input, const torch::TensorBase &grid, const torch::TensorBase &offset,
-    int64_t padding_mode, bool align_corners, bool apply_cosine_step) {
+    int64_t padding_mode, bool align_corners) {
   auto N = input.size(0);
   auto H = grid.size(1);
   auto W = grid.size(2);
@@ -995,8 +879,7 @@ void launch_cosine_sampler_forward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int>(output),
             at::cuda::detail::getTensorInfo<scalar_t, int>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
-            align_corners,
-            apply_cosine_step);
+            align_corners);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       } else {
         cosine_sampler_kernel<scalar_t>
@@ -1007,8 +890,7 @@ void launch_cosine_sampler_forward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(output),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
-            align_corners,
-            apply_cosine_step);
+            align_corners);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }
     });
@@ -1019,7 +901,7 @@ void launch_cosine_sampler_backward_kernel(
     const torch::TensorBase &grad_input, const torch::TensorBase &grad_grid,
     const torch::TensorBase& grad_output, const torch::TensorBase& input,
     const torch::TensorBase& grid, const torch::TensorBase &offset, int64_t padding_mode,
-    bool align_corners, bool apply_cosine_step, bool input_requires_grad) {
+    bool align_corners, bool input_requires_grad) {
   auto N = input.size(0);
   auto H = grid.size(1);
   auto W = grid.size(2);
@@ -1039,7 +921,6 @@ void launch_cosine_sampler_backward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
-            apply_cosine_step,
             /*grad_input_memory_span =*/input_requires_grad ? static_cast<int>(grad_input.numel()) : 0,
             input_requires_grad);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -1055,7 +936,6 @@ void launch_cosine_sampler_backward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
-            apply_cosine_step,
             /*grad_input_memory_span =*/input_requires_grad ? grad_input.numel() : 0,
             input_requires_grad);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -1077,10 +957,8 @@ void launch_cosine_sampler_backward_backward_kernel(
     const torch::TensorBase &offset,
     int64_t padding_mode,
     const bool align_corners,
-    const bool apply_cosine_step,
     const bool input_requires_grad) {
   auto N = input.size(0);
-  // auto D = grid.size(1);
   auto H = grid.size(1);
   auto W = grid.size(2);
   int64_t count = N  * H * W;
@@ -1102,7 +980,6 @@ void launch_cosine_sampler_backward_backward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
-            apply_cosine_step,
             input_requires_grad,
             static_cast<int>(gInput.numel()),
             static_cast<int>(ggOut.numel()));
@@ -1122,7 +999,6 @@ void launch_cosine_sampler_backward_backward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
-            apply_cosine_step,
             input_requires_grad,
             gInput.numel(),
             ggOut.numel());
@@ -1135,10 +1011,8 @@ void launch_cosine_sampler_backward_backward_kernel(
 void launch_cosine_sampler_backward_backward_backward_kernel(
     const torch::TensorBase& gInput,
     const torch::TensorBase& ggOut,
-    // const torch::TensorBase& gGrid,
     const torch::TensorBase& input,
     const torch::TensorBase& grid,
-    // const torch::TensorBase& gOutGrid,
     const torch::TensorBase& gOut,
     const torch::TensorBase& gOutggOut,
     const torch::TensorBase& gOutGrid, 
@@ -1146,10 +1020,8 @@ void launch_cosine_sampler_backward_backward_backward_kernel(
     const torch::TensorBase &offset,
     int64_t padding_mode,
     const bool align_corners,
-    const bool apply_cosine_step,
     const bool input_requires_grad) {
   auto N = input.size(0);
-  // auto D = grid.size(1);
   auto H = grid.size(1);
   auto W = grid.size(2);
   int64_t count = N  * H * W;
@@ -1162,19 +1034,15 @@ void launch_cosine_sampler_backward_backward_backward_kernel(
             static_cast<int>(count),
             at::cuda::detail::getTensorInfo<scalar_t, int>(gInput),
             at::cuda::detail::getTensorInfo<scalar_t, int>(ggOut),
-            // at::cuda::detail::getTensorInfo<scalar_t, int>(gGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int>(input),
             at::cuda::detail::getTensorInfo<scalar_t, int>(grid),
-            // at::cuda::detail::getTensorInfo<scalar_t, int>(gOutGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int>(gOut),
             at::cuda::detail::getTensorInfo<scalar_t, int>(gOutggOut),
             at::cuda::detail::getTensorInfo<scalar_t, int>(gOutGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int>(gOutgGrid),
-            // input_requires_grad ? at::cuda::detail::getTensorInfo<scalar_t, int>(gOutgInput) : at::cuda::detail::TensorInfo<scalar_t, int>(),
             at::cuda::detail::getTensorInfo<scalar_t, int>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
-            apply_cosine_step,
             input_requires_grad,
             static_cast<int>(gInput.numel()),
             static_cast<int>(ggOut.numel()));
@@ -1185,19 +1053,15 @@ void launch_cosine_sampler_backward_backward_backward_kernel(
             count,
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gInput),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(ggOut),
-            // at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(input),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(grid),
-            // at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOut),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutggOut),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutgGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(offset),
-            // input_requires_grad ? at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutgInput) : at::cuda::detail::TensorInfo<scalar_t, int64_t>(),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
-            apply_cosine_step,
             input_requires_grad,
             gInput.numel(),
             ggOut.numel());
