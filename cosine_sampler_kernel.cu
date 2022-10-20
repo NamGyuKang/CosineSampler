@@ -640,7 +640,7 @@ __global__ void cosine_sampler_backward_backward_kernel(
         int py = (shift >> 1) & 1;  // 0 0 1 1
 
         surface_coefficients[shift] = pos_corners[px][0] * pos_corners[py][1]; // 
-        out_derivatives[0][shift] = pos_corners[py][1] * pos_corners[px][2]; // dOut_dx / surf_weight
+        out_derivatives[0][shift] =  pos_corners[py][1] * pos_corners[px][2]; // dOut_dx / surf_weight
         out_derivatives[1][shift] = pos_corners[py][1] * pos_corners[px][4]; // d2Out_dx2 / surf_weight
         // out_derivatives[2][shift] = pos_corners[py][3] * pos_corners[px][2]; // d2Out_dxdy / surf_weight
 
@@ -829,12 +829,7 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
         float dy_bottom_derivative = -dL_diy_mult;
 
         
-        float dx_right_3nd_derivative = -dL_dix_mult;
-        float dy_bottom_3nd_derivative = -dL_diy_mult;
-
         if (apply_cosine_step) {
-            dx_right_3nd_derivative *= dL_dix_mult * dL_dix_mult * cosine_3rd_derivative(dx_right);
-            dy_bottom_3nd_derivative *= dL_diy_mult * dL_diy_mult * cosine_3rd_derivative(dy_bottom);
 
             dx_right_2nd_derivative = dL_dix_mult * dL_dix_mult * cosine_2nd_derivative(dx_right);
             dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * cosine_2nd_derivative(dy_bottom);
@@ -851,8 +846,6 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
         scalar_t dy_top_derivative = -dy_bottom_derivative;
         scalar_t dx_left_2nd_derivative = -dx_right_2nd_derivative;
         scalar_t dy_top_2nd_derivative = -dy_bottom_2nd_derivative;
-        scalar_t dx_left_3nd_derivative = -dx_right_3nd_derivative;
-        scalar_t dy_top_3nd_derivative = -dy_bottom_3nd_derivative;
 
         index_t index_corners[2][2] = {{ix_left, iy_top},
                                         {ix_right, iy_bottom}};
@@ -873,7 +866,7 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
 
         // surface_coefficients[shift] = pos_corners[px][0] * pos_corners[py][1]; // 
         out_derivatives[0][shift] = pos_corners[py][1] * pos_corners[px][2]; // dOut_dx / surf_weight
-        out_derivatives[1][shift] = pos_corners[py][1] * pos_corners[px][4]; // d2Out_dx2 / surf_weight
+        out_derivatives[1][shift] =  pos_corners[py][1] * pos_corners[px][4]; // d2Out_dx2 / surf_weight
         // out_derivatives[2][shift] = pos_corners[py][1] * pos_corners[px][6]; // d3Out_dx3 / surf_weight
 
         out_derivatives[2][shift] = pos_corners[px][0] * pos_corners[py][3]; // dOut_dy / surf_weight
@@ -960,8 +953,8 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
                                         true);
             
             // u_xx, u_yy
-            scalar_t d2L_dix2 = gOut *  (d2Out_dx2);
-            scalar_t d2L_diy2 = gOut *  (d2Out_dy2);
+            // scalar_t d2L_dix2 = (d2Out_dx2);
+            // scalar_t d2L_diy2 = (d2Out_dy2);
             
             // d3L_dix3 += gOut *  (d3Out_dx3)* gOutgGrid_x ;
             // d3L_diy3 += gOut *  (d3Out_dy3)* gOutgGrid_y ;
@@ -969,7 +962,7 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
             // at::native::safe_add_2d(grad_input.data, iy, ix, gInp_sH, gInp_sW, inp_H, inp_W, dL_dx * gOutGrid_x + dL_dy * gOutGrid_y, NC_offset_inp, grad_input_memory_span);
             
             // cell로 미분
-            add_2d(gInput.data, iy, ix, gInp_sH, gInp_sW, (d2L_dix2 * gOutgGrid_x *gOutGrid_x + d2L_diy2 * gOutgGrid_y*gOutGrid_y), NC_offset_inp, gInput_memory_span);
+            add_2d(gInput.data, iy, ix, gInp_sH, gInp_sW,  gOut * (d2Out_dx2 * gOutgGrid_x *gOutGrid_x + d2Out_dy2 * gOutgGrid_y*gOutGrid_y), NC_offset_inp, gInput_memory_span);
         }
       }
     }
