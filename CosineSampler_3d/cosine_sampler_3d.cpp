@@ -9,18 +9,18 @@
 #define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
 #define CHECK_INPUT(x) CHECK_CUDA(x); CHECK_CONTIGUOUS(x)
 
-void launch_smooth_sampler_forward_kernel(
+void launch_cosine_sampler_forward_kernel(
     const torch::TensorBase &output, const torch::TensorBase &input, const torch::TensorBase &grid,
     const torch::TensorBase &offset,    
-    int64_t padding_mode, bool align_corners);
+    int64_t padding_mode, bool align_corners, int64_t kernel_enum, bool multicell);
 
-void launch_smooth_sampler_backward_kernel(
+void launch_cosine_sampler_backward_kernel(
     const torch::TensorBase& grad_input, const torch::TensorBase &grad_grid,
     const torch::TensorBase& grad_output, const torch::TensorBase& input,
     const torch::TensorBase& grid, const torch::TensorBase &offset, int64_t padding_mode, bool align_corners,
-    bool input_requires_grad);
+    bool input_requires_grad, int64_t kernel_enum, bool multicell);
 
-void launch_smooth_sampler_backward_backward_kernel(
+void launch_cosine_sampler_backward_backward_kernel(
     const torch::TensorBase& grad_input,
     const torch::TensorBase& grad_grid,
     const torch::TensorBase& grad_grad_out,
@@ -32,9 +32,9 @@ void launch_smooth_sampler_backward_backward_kernel(
     const torch::TensorBase &offset,
     int64_t padding_mode,
     const bool align_corners,
-    const bool input_requires_grad);
+    const bool input_requires_grad, int64_t kernel_enum, bool multicell);
 
-void launch_smooth_sampler_backward_backward_backward_kernel(
+void launch_cosine_sampler_backward_backward_backward_kernel(
     const torch::TensorBase& grad_input,
     const torch::TensorBase& grad_grad_out,
     const torch::TensorBase& input,
@@ -45,10 +45,10 @@ void launch_smooth_sampler_backward_backward_backward_kernel(
     const torch::TensorBase &offset,
     int64_t padding_mode,
     const bool align_corners,
-    const bool input_requires_grad);
+    const bool input_requires_grad, int64_t kernel_enum, bool multicell);
 
-torch::Tensor smooth_sampler_forward(torch::Tensor input, torch::Tensor grid, torch::Tensor offset,
-                                     int64_t padding_mode, bool align_corners) {
+torch::Tensor cosine_sampler_forward(torch::Tensor input, torch::Tensor grid, torch::Tensor offset,
+                                     int64_t padding_mode, bool align_corners, int64_t kernel_enum, bool multicell) {
   CHECK_INPUT(input)
   CHECK_INPUT(grid)
   CHECK_INPUT(offset)
@@ -59,14 +59,14 @@ torch::Tensor smooth_sampler_forward(torch::Tensor input, torch::Tensor grid, to
   auto output = torch::empty(
       {in_size[0], in_size[1], grid_size[1], grid_size[2], grid_size[3]},
       input.options());
-  launch_smooth_sampler_forward_kernel(
-      output, input, grid, offset, padding_mode, align_corners);
+  launch_cosine_sampler_forward_kernel(
+      output, input, grid, offset, padding_mode, align_corners, kernel_enum, multicell);
   return output;
 }
 
-std::tuple<torch::Tensor, torch::Tensor> smooth_sampler_backward(torch::Tensor grad_output, torch::Tensor input,
+std::tuple<torch::Tensor, torch::Tensor> cosine_sampler_backward(torch::Tensor grad_output, torch::Tensor input,
                                                                  torch::Tensor grid, torch::Tensor offset, int64_t padding_mode, bool align_corners,
-                                                                 bool input_requires_grad) {
+                                                                 bool input_requires_grad, int64_t kernel_enum, bool multicell) {
   CHECK_INPUT(grad_output)
   CHECK_INPUT(input)
   CHECK_INPUT(grid)
@@ -81,16 +81,16 @@ std::tuple<torch::Tensor, torch::Tensor> smooth_sampler_backward(torch::Tensor g
     }
   })();
   auto grad_grid = torch::empty_like(grid, LEGACY_CONTIGUOUS_MEMORY_FORMAT);
-  launch_smooth_sampler_backward_kernel(
+  launch_cosine_sampler_backward_kernel(
       grad_input, grad_grid, grad_output, input,
-      grid, offset, padding_mode, align_corners, input_requires_grad);
+      grid, offset, padding_mode, align_corners, input_requires_grad, kernel_enum, multicell);
   return std::make_tuple(grad_input, grad_grid);
 }
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> smooth_sampler_backward_backward(torch::Tensor grad_out_input, torch::Tensor grad_out_grid,
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> cosine_sampler_backward_backward(torch::Tensor grad_out_input, torch::Tensor grad_out_grid,
                                                                           torch::Tensor input, torch::Tensor grid, torch::Tensor grad_output,
                                                                           torch::Tensor offset,
-                                                                          int64_t padding_mode, bool align_corners, bool input_requires_grad) {
+                                                                          int64_t padding_mode, bool align_corners, bool input_requires_grad, int64_t kernel_enum, bool multicell) {
   CHECK_INPUT(grad_out_input)
   CHECK_INPUT(grad_out_grid)
   CHECK_INPUT(input)
@@ -102,16 +102,16 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> smooth_sampler_backward_
   auto grad_input = torch::zeros_like(input, LEGACY_CONTIGUOUS_MEMORY_FORMAT);
   auto grad_grid = torch::empty_like(grid, LEGACY_CONTIGUOUS_MEMORY_FORMAT);
   auto grad_grad_out = torch::zeros_like(grad_output, LEGACY_CONTIGUOUS_MEMORY_FORMAT);
-  launch_smooth_sampler_backward_backward_kernel(grad_input, grad_grid, grad_grad_out, input, grid,
+  launch_cosine_sampler_backward_backward_kernel(grad_input, grad_grid, grad_grad_out, input, grid,
                                                  grad_out_input, grad_out_grid, grad_output, offset,
-                                                 padding_mode, align_corners, input_requires_grad);
+                                                 padding_mode, align_corners, input_requires_grad, kernel_enum, multicell);
   return std::make_tuple(grad_input, grad_grid, grad_grad_out);
 }
 
 
-std::tuple<torch::Tensor, torch::Tensor> smooth_sampler_backward_backward_backward(torch::Tensor input, torch::Tensor grid, torch::Tensor gOut,
+std::tuple<torch::Tensor, torch::Tensor> cosine_sampler_backward_backward_backward(torch::Tensor input, torch::Tensor grid, torch::Tensor gOut,
                                              torch::Tensor gOutGrid, torch::Tensor gOutgGrid,
-                                              torch::Tensor offset, int64_t padding_mode, bool align_corners, bool input_requires_grad) {
+                                              torch::Tensor offset, int64_t padding_mode, bool align_corners, bool input_requires_grad, int64_t kernel_enum, bool multicell) {
   CHECK_INPUT(input)
   CHECK_INPUT(grid)
   CHECK_INPUT(gOut)
@@ -124,15 +124,15 @@ std::tuple<torch::Tensor, torch::Tensor> smooth_sampler_backward_backward_backwa
   auto ggOut = torch::zeros_like(gOut, LEGACY_CONTIGUOUS_MEMORY_FORMAT);
 
   
-  launch_smooth_sampler_backward_backward_backward_kernel(gInput, ggOut,  input, grid, 
+  launch_cosine_sampler_backward_backward_backward_kernel(gInput, ggOut,  input, grid, 
                                                  gOut, gOutGrid,gOutgGrid, offset,
-                                                 padding_mode, align_corners, input_requires_grad);
+                                                 padding_mode, align_corners, input_requires_grad, kernel_enum, multicell);
   return std::make_tuple(gInput, ggOut);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("forward", &smooth_sampler_forward, "Smooth sampler forward (CUDA)");
-  m.def("backward", &smooth_sampler_backward, "Smooth sampler backward (CUDA)");
-  m.def("backward_backward", &smooth_sampler_backward_backward, "Smooth sampler backward backward (CUDA)");
-  m.def("backward_backward_backward", &smooth_sampler_backward_backward_backward, "Smooth sampler backward backward backward (CUDA)");
+  m.def("forward", &cosine_sampler_forward, "cosine sampler forward (CUDA)");
+  m.def("backward", &cosine_sampler_backward, "cosine sampler backward (CUDA)");
+  m.def("backward_backward", &cosine_sampler_backward_backward, "cosine sampler backward backward (CUDA)");
+  m.def("backward_backward_backward", &cosine_sampler_backward_backward_backward, "cosine sampler backward backward backward (CUDA)");
 }

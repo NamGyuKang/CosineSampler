@@ -52,10 +52,13 @@ void add_2d(scalar_t *data, int h, int w,
 //     scale_factor = size / 2
 template <typename scalar_t>
 static inline __device__ scalar_t grid_sampler_unnormalize(scalar_t coord, int64_t size,
-                                                bool align_corners, scalar_t offset) {
+                                                bool align_corners, scalar_t offset, const bool multicell) {
   if (align_corners) {
+    if (multicell){
+      size = size -1;
+    }
     // unnormalize coord from [-1, 1] to [0, size - 1]
-    return (((coord + 1) / 2) * (size - 2)) + offset;
+    return (((coord + 1) / 2) * (size - 1)) + offset;
   } else {
     // unnormalize coord from [-1, 1] to [-0.5, size - 0.5]
     return (((coord + 1) * size - 1) / 2) + offset;
@@ -68,11 +71,14 @@ static inline __device__ scalar_t grid_sampler_unnormalize(scalar_t coord, int64
 // This is useful in the backward pass of grid_sampler.
 template <typename scalar_t>
 static inline __device__ scalar_t grid_sampler_unnormalize_set_grad(scalar_t coord, int64_t size,
-                                                         bool align_corners, scalar_t *grad_in, scalar_t offset) {
+                                                         bool align_corners, scalar_t *grad_in, scalar_t offset, const bool multicell) {
   if (align_corners) {
     // unnormalize coord from [-1, 1] to [0, size - 1]
-    *grad_in = static_cast<scalar_t>(size - 2) / 2;
-    return ((coord + 1) / 2) * (size - 2) + offset;
+    if (multicell){
+      size = size -1;
+    }
+    *grad_in = static_cast<scalar_t>(size - 1) / 2;
+    return ((coord + 1) / 2) * (size - 1) + offset;
   } else {
     // unnormalize coord from [-1, 1] to [-0.5, size - 0.5]
     *grad_in = static_cast<scalar_t>(size) / 2;
@@ -192,8 +198,8 @@ static inline __device__ scalar_t grid_sampler_compute_source_index(
     scalar_t coord,
     int64_t size,
     at::native::detail::GridSamplerPadding padding_mode,
-    bool align_corners, scalar_t offset) {
-  coord = grid_sampler_unnormalize(coord, size, align_corners, offset);
+    bool align_corners, scalar_t offset, const bool multicell) {
+  coord = grid_sampler_unnormalize(coord, size, align_corners, offset, multicell);
   coord = compute_coordinates(coord, size, padding_mode, align_corners);
   return coord;
 }
@@ -208,9 +214,9 @@ static inline __device__ scalar_t grid_sampler_compute_source_index_set_grad(
     int64_t size,
     at::native::detail::GridSamplerPadding padding_mode,
     bool align_corners,
-    scalar_t *grad_in, scalar_t offset) {
+    scalar_t *grad_in, scalar_t offset, const bool multicell) {
   scalar_t grad_clip, grad_refl;
-  coord = grid_sampler_unnormalize_set_grad(coord, size, align_corners, grad_in, offset);
+  coord = grid_sampler_unnormalize_set_grad(coord, size, align_corners, grad_in, offset, multicell);
   if (padding_mode == at::native::detail::GridSamplerPadding::Border) {
     // clip coordinates to image borders
     coord = clip_coordinates_set_grad(coord, size, &grad_clip);
@@ -265,7 +271,9 @@ template <typename scalar_t, typename index_t>
     at::cuda::detail::TensorInfo<scalar_t, index_t> output,
     at::cuda::detail::TensorInfo<scalar_t, index_t> offset,
     const at::native::detail::GridSamplerPadding padding_mode,
-    bool align_corners){
+    bool align_corners,
+    index_t kernel_enum,
+    const bool multicell){
 
         index_t C = input.sizes[1];
         index_t inp_H = input.sizes[2];
@@ -296,16 +304,27 @@ template <typename scalar_t, typename index_t>
             scalar_t x = grid.data[grid_offset];
             scalar_t y = grid.data[grid_offset + grid_sCoor];
 
-            scalar_t ix = grid_sampler_compute_source_index(x, inp_W, padding_mode, 1, offset.data[n * off_sN]); //at::native::
-            scalar_t iy = grid_sampler_compute_source_index(y, inp_H, padding_mode, 1, offset.data[n * off_sN]);
+            scalar_t ix = grid_sampler_compute_source_index(x, inp_W, padding_mode, 1, offset.data[n * off_sN], multicell); //at::native::
+            scalar_t iy = grid_sampler_compute_source_index(y, inp_H, padding_mode, 1, offset.data[n * off_sN], multicell);
 
             index_t ix_left = static_cast<index_t>(::floor(ix));
             index_t iy_top = static_cast<index_t>(::floor(iy));
             index_t ix_right = ix_left +1;
             index_t iy_bottom = iy_top +1;
 
-            scalar_t dx_right = cosine(ix_right - ix);
-            scalar_t dy_bottom = cosine(iy_bottom - iy);
+            scalar_t dx_right = ix_right - ix;
+            scalar_t dy_bottom = iy_bottom - iy;
+
+            if (kernel_enum == 0){
+              // cosine kernel
+              dx_right = cosine(ix_right - ix);
+              dy_bottom = cosine(iy_bottom - iy);
+            }else if (kernel_enum ==2){
+              // smoothstep kernel
+              dx_right = smoothstep(ix_right - ix);
+              dy_bottom = smoothstep(iy_bottom - iy);
+            }
+
 
             scalar_t dx_left = 1.0f - dx_right;
             scalar_t dy_top = 1.0f - dy_bottom;
@@ -350,7 +369,9 @@ __global__ void cosine_sampler_backward_kernel(
     const at::native::detail::GridSamplerPadding padding_mode,
     bool align_corners,
     const index_t grad_input_memory_span,
-    const bool input_requires_grad) {
+    const bool input_requires_grad,
+    index_t kernel_enum,
+    const bool multicell) {
 
     index_t C = input.sizes[1];
     index_t inp_H = input.sizes[2];
@@ -394,8 +415,8 @@ __global__ void cosine_sampler_backward_kernel(
 
       // multipliers for gradients on ix and iy
       scalar_t gix_mult, giy_mult;
-      scalar_t ix = grid_sampler_compute_source_index_set_grad(x, inp_W, padding_mode, align_corners, &gix_mult, offset.data[n * off_sN]);
-      scalar_t iy = grid_sampler_compute_source_index_set_grad(y, inp_H, padding_mode, align_corners, &giy_mult, offset.data[n * off_sN]);
+      scalar_t ix = grid_sampler_compute_source_index_set_grad(x, inp_W, padding_mode, align_corners, &gix_mult, offset.data[n * off_sN], multicell);
+      scalar_t iy = grid_sampler_compute_source_index_set_grad(y, inp_H, padding_mode, align_corners, &giy_mult, offset.data[n * off_sN], multicell);
 
         // get NE, NW, SE, SW pixel values from (x, y)
         index_t ix_left = static_cast<index_t>(::floor(ix));
@@ -406,14 +427,21 @@ __global__ void cosine_sampler_backward_kernel(
         scalar_t dx_right = ix_right - ix; 
         scalar_t dy_bottom = iy_bottom - iy;
     
-        // float dx_right_derivative = 1.0f;
-        // float dy_bottom_derivative = 1.0f;
+        float dx_right_derivative = 1.0f;
+        float dy_bottom_derivative = 1.0f;
+        if (kernel_enum==0){
+          dx_right_derivative = cosine_derivative(dx_right);
+          dy_bottom_derivative = cosine_derivative(dy_bottom);
+          dx_right = cosine(dx_right);
+          dy_bottom = cosine(dy_bottom);
+        }else if (kernel_enum==1){
+        }else if (kernel_enum==2){
+          dx_right_derivative = smoothstep_derivative(dx_right);
+          dy_bottom_derivative = smoothstep_derivative(dy_bottom);
+          dx_right = smoothstep(dx_right);
+          dy_bottom = smoothstep(dy_bottom);
+        }
 
-        float dx_right_derivative = cosine_derivative(dx_right);
-        float dy_bottom_derivative = cosine_derivative(dy_bottom);
-
-        dx_right = cosine(dx_right);
-        dy_bottom = cosine(dy_bottom);
         
         scalar_t dx_left = 1.0f - dx_right;
         scalar_t dy_top = 1.0f - dy_bottom;
@@ -495,7 +523,9 @@ __global__ void cosine_sampler_backward_backward_kernel(
     bool align_corners,
     bool input_requires_grad,
     const index_t gInput_memory_span,
-    const index_t ggOut_memory_span) {
+    const index_t ggOut_memory_span,
+    index_t kernel_enum,
+    const bool multicell) {
 
     index_t C = input.sizes[1];
     index_t inp_H = input.sizes[2];
@@ -547,8 +577,8 @@ __global__ void cosine_sampler_backward_backward_kernel(
 
         // multipliers for gradients on ix and iy
         scalar_t dL_dix_mult, dL_diy_mult;
-        scalar_t ix = grid_sampler_compute_source_index_set_grad(x, inp_W, padding_mode, align_corners, &dL_dix_mult, offset.data[n * off_sN]);
-        scalar_t iy = grid_sampler_compute_source_index_set_grad(y, inp_H, padding_mode, align_corners, &dL_diy_mult, offset.data[n * off_sN]);
+        scalar_t ix = grid_sampler_compute_source_index_set_grad(x, inp_W, padding_mode, align_corners, &dL_dix_mult, offset.data[n * off_sN], multicell);
+        scalar_t iy = grid_sampler_compute_source_index_set_grad(y, inp_H, padding_mode, align_corners, &dL_diy_mult, offset.data[n * off_sN], multicell);
 
         // get NE, NW, SE, SW pixel values from (x, y)
         index_t ix_left = static_cast<index_t>(::floor(ix));
@@ -558,17 +588,26 @@ __global__ void cosine_sampler_backward_backward_kernel(
 
         scalar_t dx_right = ix_right - ix; 
         scalar_t dy_bottom = iy_bottom - iy;
-    
-        
-        float dx_right_2nd_derivative = dL_dix_mult * dL_dix_mult * cosine_2nd_derivative(dx_right);
-        float dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * cosine_2nd_derivative(dy_bottom);
+        float dx_right_2nd_derivative = 0.0f;
+        float dy_bottom_2nd_derivative = 0.0f;
+        float dx_right_derivative = -dL_dix_mult * 1.0f;
+        float dy_bottom_derivative = -dL_diy_mult * 1.0f;
 
-        float dx_right_derivative = -dL_dix_mult * cosine_derivative(dx_right);
-        float dy_bottom_derivative = -dL_diy_mult * cosine_derivative(dy_bottom);
-
-        dx_right = cosine(dx_right);
-        dy_bottom = cosine(dy_bottom);
-
+        if (kernel_enum ==0){
+          dx_right_2nd_derivative = dL_dix_mult * dL_dix_mult * cosine_2nd_derivative(dx_right);
+          dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * cosine_2nd_derivative(dy_bottom);
+          dx_right_derivative = -dL_dix_mult * cosine_derivative(dx_right);
+          dy_bottom_derivative = -dL_diy_mult * cosine_derivative(dy_bottom);
+          dx_right = cosine(dx_right);
+          dy_bottom = cosine(dy_bottom);
+        }else if (kernel_enum==2){
+          dx_right_2nd_derivative = dL_dix_mult * dL_dix_mult * smoothstep_2nd_derivative(dx_right);
+          dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * smoothstep_2nd_derivative(dy_bottom);
+          dx_right_derivative = -dL_dix_mult * smoothstep_derivative(dx_right);
+          dy_bottom_derivative = -dL_diy_mult * smoothstep_derivative(dy_bottom);
+          dx_right = smoothstep(dx_right);
+          dy_bottom = smoothstep(dy_bottom);
+        }
         scalar_t dx_left = 1.0f - dx_right;
         scalar_t dy_top = 1.0f - dy_bottom;
 
@@ -703,7 +742,9 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
     bool align_corners,
     bool input_requires_grad,
     const index_t gInput_memory_span,
-    const index_t ggOut_memory_span) {
+    const index_t ggOut_memory_span,
+    index_t kernel_enum,
+    const bool multicell) {
 
     index_t C = input.sizes[1];
     index_t inp_H = input.sizes[2];
@@ -754,8 +795,8 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
 
         // multipliers for gradients on ix and iy
         scalar_t dL_dix_mult, dL_diy_mult;
-        scalar_t ix = grid_sampler_compute_source_index_set_grad(x, inp_W, padding_mode, align_corners, &dL_dix_mult, offset.data[n * off_sN]);
-        scalar_t iy = grid_sampler_compute_source_index_set_grad(y, inp_H, padding_mode, align_corners, &dL_diy_mult, offset.data[n * off_sN]);
+        scalar_t ix = grid_sampler_compute_source_index_set_grad(x, inp_W, padding_mode, align_corners, &dL_dix_mult, offset.data[n * off_sN], multicell);
+        scalar_t iy = grid_sampler_compute_source_index_set_grad(y, inp_H, padding_mode, align_corners, &dL_diy_mult, offset.data[n * off_sN], multicell);
 
         // get NE, NW, SE, SW pixel values from (x, y)
         index_t ix_left = static_cast<index_t>(::floor(ix));
@@ -766,11 +807,20 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
         scalar_t dx_right = ix_right - ix; 
         scalar_t dy_bottom = iy_bottom - iy;
 
-        float dx_right_2nd_derivative = dL_dix_mult * dL_dix_mult * cosine_2nd_derivative(dx_right);
-        float dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * cosine_2nd_derivative(dy_bottom);
+        float dx_right_2nd_derivative = 0.0f;
+        float dy_bottom_2nd_derivative = 0.0f;
         
-        dx_right = cosine(dx_right);
-        dy_bottom = cosine(dy_bottom);
+        if (kernel_enum ==0){
+          dx_right_2nd_derivative = dL_dix_mult * dL_dix_mult * cosine_2nd_derivative(dx_right);
+          dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * cosine_2nd_derivative(dy_bottom);
+          dx_right = cosine(dx_right);
+          dy_bottom = cosine(dy_bottom);
+        }else if (kernel_enum==2){
+          dx_right_2nd_derivative = dL_dix_mult * dL_dix_mult * smoothstep_2nd_derivative(dx_right);
+          dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * smoothstep_2nd_derivative(dy_bottom);
+          dx_right = smoothstep(dx_right);
+          dy_bottom = smoothstep(dy_bottom);
+        }
         
 
         scalar_t dx_left = 1.0f - dx_right;
@@ -862,7 +912,7 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
 
 void launch_cosine_sampler_forward_kernel(
     const torch::TensorBase &output, const torch::TensorBase &input, const torch::TensorBase &grid, const torch::TensorBase &offset,
-    int64_t padding_mode, bool align_corners) {
+    int64_t padding_mode, bool align_corners, int64_t kernel_enum, const bool multicell) {
   auto N = input.size(0);
   auto H = grid.size(1);
   auto W = grid.size(2);
@@ -879,7 +929,9 @@ void launch_cosine_sampler_forward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int>(output),
             at::cuda::detail::getTensorInfo<scalar_t, int>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
-            align_corners);
+            align_corners,
+            static_cast<int>(kernel_enum),
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       } else {
         cosine_sampler_kernel<scalar_t>
@@ -890,7 +942,9 @@ void launch_cosine_sampler_forward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(output),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
-            align_corners);
+            align_corners,
+            kernel_enum,
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }
     });
@@ -901,7 +955,7 @@ void launch_cosine_sampler_backward_kernel(
     const torch::TensorBase &grad_input, const torch::TensorBase &grad_grid,
     const torch::TensorBase& grad_output, const torch::TensorBase& input,
     const torch::TensorBase& grid, const torch::TensorBase &offset, int64_t padding_mode,
-    bool align_corners, bool input_requires_grad) {
+    bool align_corners, bool input_requires_grad, int64_t kernel_enum, const bool multicell) {
   auto N = input.size(0);
   auto H = grid.size(1);
   auto W = grid.size(2);
@@ -922,7 +976,9 @@ void launch_cosine_sampler_backward_kernel(
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
             /*grad_input_memory_span =*/input_requires_grad ? static_cast<int>(grad_input.numel()) : 0,
-            input_requires_grad);
+            input_requires_grad,
+            static_cast<int>(kernel_enum),
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       } else {
         cosine_sampler_backward_kernel<scalar_t>
@@ -937,7 +993,9 @@ void launch_cosine_sampler_backward_kernel(
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
             /*grad_input_memory_span =*/input_requires_grad ? grad_input.numel() : 0,
-            input_requires_grad);
+            input_requires_grad,
+            kernel_enum,
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }
     });
@@ -957,7 +1015,8 @@ void launch_cosine_sampler_backward_backward_kernel(
     const torch::TensorBase &offset,
     int64_t padding_mode,
     const bool align_corners,
-    const bool input_requires_grad) {
+    const bool input_requires_grad, 
+    int64_t kernel_enum, const bool multicell) {
   auto N = input.size(0);
   auto H = grid.size(1);
   auto W = grid.size(2);
@@ -982,7 +1041,9 @@ void launch_cosine_sampler_backward_backward_kernel(
             align_corners,
             input_requires_grad,
             static_cast<int>(gInput.numel()),
-            static_cast<int>(ggOut.numel()));
+            static_cast<int>(ggOut.numel()),
+            static_cast<int>(kernel_enum),
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       } else {
         cosine_sampler_backward_backward_kernel<scalar_t>
@@ -1001,7 +1062,9 @@ void launch_cosine_sampler_backward_backward_kernel(
             align_corners,
             input_requires_grad,
             gInput.numel(),
-            ggOut.numel());
+            ggOut.numel(),
+            kernel_enum,
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }
     });
@@ -1020,7 +1083,8 @@ void launch_cosine_sampler_backward_backward_backward_kernel(
     const torch::TensorBase &offset,
     int64_t padding_mode,
     const bool align_corners,
-    const bool input_requires_grad) {
+    const bool input_requires_grad,
+    int64_t kernel_enum, const bool multicell) {
   auto N = input.size(0);
   auto H = grid.size(1);
   auto W = grid.size(2);
@@ -1045,7 +1109,9 @@ void launch_cosine_sampler_backward_backward_backward_kernel(
             align_corners,
             input_requires_grad,
             static_cast<int>(gInput.numel()),
-            static_cast<int>(ggOut.numel()));
+            static_cast<int>(ggOut.numel()),
+            static_cast<int>(kernel_enum),
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       } else {
         cosine_sampler_backward_backward_backward_kernel<scalar_t>
@@ -1064,7 +1130,9 @@ void launch_cosine_sampler_backward_backward_backward_kernel(
             align_corners,
             input_requires_grad,
             gInput.numel(),
-            ggOut.numel());
+            ggOut.numel(),
+            kernel_enum,
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }
     });

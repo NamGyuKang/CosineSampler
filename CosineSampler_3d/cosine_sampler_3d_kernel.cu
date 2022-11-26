@@ -62,10 +62,14 @@ __device__ inline float cosine_2nd_derivative(float val) {
 //     scale_factor = size / 2
 template <typename scalar_t>
 static inline __device__ scalar_t grid_sampler_unnormalize(scalar_t coord, int64_t size,
-                                                bool align_corners, scalar_t offset) {
+                                                bool align_corners, scalar_t offset, bool multicell) {
+
   if (align_corners) {
+    if (multicell){
+      size = size - 1;
+    }
     // unnormalize coord from [-1, 1] to [0, size - 1]
-    return (((coord + 1) / 2) * (size - 2)) + offset;
+    return (((coord + 1) / 2) * (size - 1)) + offset;
   } else {
     // unnormalize coord from [-1, 1] to [-0.5, size - 0.5]
     return (((coord + 1) * size - 1) / 2) + offset;
@@ -78,11 +82,14 @@ static inline __device__ scalar_t grid_sampler_unnormalize(scalar_t coord, int64
 // This is useful in the backward pass of grid_sampler.
 template <typename scalar_t>
 static inline __device__ scalar_t grid_sampler_unnormalize_set_grad(scalar_t coord, int64_t size,
-                                                         bool align_corners, scalar_t *grad_in, scalar_t offset) {
+                                                         bool align_corners, scalar_t *grad_in, scalar_t offset, bool multicell) {
   if (align_corners) {
     // unnormalize coord from [-1, 1] to [0, size - 1]
-    *grad_in = static_cast<scalar_t>(size - 2) / 2;
-    return ((coord + 1) / 2) * (size - 2) + offset;
+    if (multicell){
+      size = size - 1;
+    }
+    *grad_in = static_cast<scalar_t>(size - 1) / 2;
+    return ((coord + 1) / 2) * (size - 1) + offset;
   } else {
     // unnormalize coord from [-1, 1] to [-0.5, size - 0.5]
     *grad_in = static_cast<scalar_t>(size) / 2;
@@ -202,8 +209,8 @@ static inline __device__ scalar_t grid_sampler_compute_source_index(
     scalar_t coord,
     int64_t size,
     at::native::detail::GridSamplerPadding padding_mode,
-    bool align_corners, scalar_t offset) {
-  coord = grid_sampler_unnormalize(coord, size, align_corners, offset);
+    bool align_corners, scalar_t offset, bool multicell) {
+  coord = grid_sampler_unnormalize(coord, size, align_corners, offset, multicell);
   coord = compute_coordinates(coord, size, padding_mode, align_corners);
   return coord;
 }
@@ -218,9 +225,9 @@ static inline __device__ scalar_t grid_sampler_compute_source_index_set_grad(
     int64_t size,
     at::native::detail::GridSamplerPadding padding_mode,
     bool align_corners,
-    scalar_t *grad_in, scalar_t offset) {
+    scalar_t *grad_in, scalar_t offset, bool multicell) {
   scalar_t grad_clip, grad_refl;
-  coord = grid_sampler_unnormalize_set_grad(coord, size, align_corners, grad_in, offset);
+  coord = grid_sampler_unnormalize_set_grad(coord, size, align_corners, grad_in, offset, multicell);
   if (padding_mode == at::native::detail::GridSamplerPadding::Border) {
     // clip coordinates to image borders
     coord = clip_coordinates_set_grad(coord, size, &grad_clip);
@@ -242,14 +249,16 @@ static inline __device__ scalar_t grid_sampler_compute_source_index_set_grad(
 
   template <typename scalar_t, typename index_t>
   C10_LAUNCH_BOUNDS_1(512)
-  __global__ void smooth_sampler_kernel(
+  __global__ void cosine_sampler_kernel(
       const index_t nthreads,
      at::cuda::detail::TensorInfo<scalar_t, index_t> input,
      at::cuda::detail::TensorInfo<scalar_t, index_t> grid,
      at::cuda::detail::TensorInfo<scalar_t, index_t> output,
      at::cuda::detail::TensorInfo<scalar_t, index_t> offset,
     const at::native::detail::GridSamplerPadding padding_mode,
-      bool align_corners) {
+      bool align_corners,
+      index_t kernel_enum,
+      const bool multicell) {
     index_t off_sN = offset.strides[0];
 
   index_t C = input.sizes[1];
@@ -287,9 +296,9 @@ static inline __device__ scalar_t grid_sampler_compute_source_index_set_grad(
     scalar_t iy = grid.data[grid_offset + grid_sCoor];
     scalar_t iz = grid.data[grid_offset + 2 * grid_sCoor];
 
-    ix = grid_sampler_compute_source_index(ix, inp_W, padding_mode, align_corners, offset.data[n * off_sN]);
-    iy = grid_sampler_compute_source_index(iy, inp_H, padding_mode, align_corners, offset.data[n * off_sN]);
-    iz = grid_sampler_compute_source_index(iz, inp_D, padding_mode, align_corners, offset.data[n * off_sN]);
+    ix = grid_sampler_compute_source_index(ix, inp_W, padding_mode, align_corners, offset.data[n * off_sN], multicell);
+    iy = grid_sampler_compute_source_index(iy, inp_H, padding_mode, align_corners, offset.data[n * off_sN], multicell);
+    iz = grid_sampler_compute_source_index(iz, inp_D, padding_mode, align_corners, offset.data[n * off_sN], multicell);
 
     // get corner pixel values from (x, y, z)
     // for 4d, we used north-east-south-west
@@ -304,12 +313,15 @@ static inline __device__ scalar_t grid_sampler_compute_source_index_set_grad(
     scalar_t pos_x_ = ix - _ix;
     scalar_t pos_y_ = iy - _iy;
     scalar_t pos_z_ = iz - _iz;
-    bool apply_smoothstep = true;
 
-    if (apply_smoothstep) {
+    if (kernel_enum == 0) {
       pos_x_ = cosine(pos_x_);
       pos_y_ = cosine(pos_y_);
       pos_z_ = cosine(pos_z_);
+    }else if(kernel_enum==2){
+      pos_x_ = smoothstep(pos_x_);
+      pos_y_ = smoothstep(pos_y_);
+      pos_z_ = smoothstep(pos_z_);
     }
 
     scalar_t pos_x = 1.0f - pos_x_;
@@ -360,7 +372,7 @@ static inline __device__ scalar_t grid_sampler_compute_source_index_set_grad(
 
  template <typename scalar_t, typename index_t>
   C10_LAUNCH_BOUNDS_1(256)
-  __global__ void smooth_sampler_backward_kernel(
+  __global__ void cosine_sampler_backward_kernel(
       const index_t nthreads,
      at::cuda::detail::TensorInfo<scalar_t, index_t> grad_output,
      at::cuda::detail::TensorInfo<scalar_t, index_t> input,
@@ -371,7 +383,9 @@ static inline __device__ scalar_t grid_sampler_compute_source_index_set_grad(
     const at::native::detail::GridSamplerPadding padding_mode,
       bool align_corners,
       const index_t grad_input_memory_span,
-      const bool input_requires_grad) {
+      const bool input_requires_grad,
+      index_t kernel_enum,
+      const bool multicell) {
     index_t off_sN = offset.strides[0];
 
   index_t C = input.sizes[1];
@@ -425,9 +439,9 @@ static inline __device__ scalar_t grid_sampler_compute_source_index_set_grad(
 
     // multipliers for gradients on ix, iy, and iz
     scalar_t dL_dix_mult, dL_diy_mult, dL_diz_mult;
-    ix = grid_sampler_compute_source_index_set_grad(ix, inp_W, padding_mode, align_corners, &dL_dix_mult, offset.data[n * off_sN]);
-    iy = grid_sampler_compute_source_index_set_grad(iy, inp_H, padding_mode, align_corners, &dL_diy_mult, offset.data[n * off_sN]);
-    iz = grid_sampler_compute_source_index_set_grad(iz, inp_D, padding_mode, align_corners, &dL_diz_mult, offset.data[n * off_sN]);
+    ix = grid_sampler_compute_source_index_set_grad(ix, inp_W, padding_mode, align_corners, &dL_dix_mult, offset.data[n * off_sN], multicell);
+    iy = grid_sampler_compute_source_index_set_grad(iy, inp_H, padding_mode, align_corners, &dL_diy_mult, offset.data[n * off_sN], multicell);
+    iz = grid_sampler_compute_source_index_set_grad(iz, inp_D, padding_mode, align_corners, &dL_diz_mult, offset.data[n * off_sN], multicell);
 
     // get corner pixel values from (x, y, z)
     // for 4d, we used north-east-south-west
@@ -446,16 +460,22 @@ static inline __device__ scalar_t grid_sampler_compute_source_index_set_grad(
     float pos_x_derivative = 1.0f;
     float pos_y_derivative = 1.0f;
     float pos_z_derivative = 1.0f;
-    bool apply_smoothstep = true;
 
-    if (apply_smoothstep) {
+    if (kernel_enum==0) {
       pos_x_derivative = cosine_derivative(pos_x_);
       pos_y_derivative = cosine_derivative(pos_y_);
       pos_z_derivative = cosine_derivative(pos_z_);
       pos_x_ = cosine(pos_x_);
       pos_y_ = cosine(pos_y_);
       pos_z_ = cosine(pos_z_);
-    } 
+    } else if(kernel_enum==2){
+      pos_x_derivative = smoothstep_derivative(pos_x_);
+      pos_y_derivative = smoothstep_derivative(pos_y_);
+      pos_z_derivative = smoothstep_derivative(pos_z_);
+      pos_x_ = smoothstep(pos_x_);
+      pos_y_ = smoothstep(pos_y_);
+      pos_z_ = smoothstep(pos_z_);
+    }
 
     scalar_t pos_x = 1.0f - pos_x_;
     scalar_t pos_y = 1.0f - pos_y_;
@@ -566,7 +586,7 @@ static inline __device__ scalar_t grid_sampler_compute_source_index_set_grad(
 
 template <typename scalar_t, typename index_t>
 C10_LAUNCH_BOUNDS_1(256)
-__global__ void smooth_sampler_backward_backward_kernel(
+__global__ void cosine_sampler_backward_backward_kernel(
     const index_t nthreads,
     at::cuda::detail::TensorInfo<scalar_t, index_t> grad_input, // initialized to empty
     at::cuda::detail::TensorInfo<scalar_t, index_t> grad_grid, // initialized to zeros
@@ -579,10 +599,12 @@ __global__ void smooth_sampler_backward_backward_kernel(
     at::cuda::detail::TensorInfo<scalar_t, index_t> offset,
     const at::native::detail::GridSamplerPadding padding_mode,
     bool align_corners,
-    // bool apply_smoothstep,
+    // bool apply_cosinestep,
     bool input_requires_grad,
     const index_t grad_input_memory_span,
-    const index_t grad_grad_out_memory_span) {
+    const index_t grad_grad_out_memory_span,
+    index_t kernel_enum,
+      const bool multicell) {
   index_t off_sN = offset.strides[0];
   index_t C = input.sizes[1];
   index_t inp_D = input.sizes[2];
@@ -641,9 +663,9 @@ __global__ void smooth_sampler_backward_backward_kernel(
 
     // multipliers for gradients on ix, iy, and iz
     scalar_t dL_dix_mult, dL_diy_mult, dL_diz_mult;
-    ix = grid_sampler_compute_source_index_set_grad(ix, inp_W, padding_mode, align_corners, &dL_dix_mult, offset.data[n * off_sN]);
-    iy = grid_sampler_compute_source_index_set_grad(iy, inp_H, padding_mode, align_corners, &dL_diy_mult, offset.data[n * off_sN]);
-    iz = grid_sampler_compute_source_index_set_grad(iz, inp_D, padding_mode, align_corners, &dL_diz_mult, offset.data[n * off_sN]);
+    ix = grid_sampler_compute_source_index_set_grad(ix, inp_W, padding_mode, align_corners, &dL_dix_mult, offset.data[n * off_sN], multicell);
+    iy = grid_sampler_compute_source_index_set_grad(iy, inp_H, padding_mode, align_corners, &dL_diy_mult, offset.data[n * off_sN], multicell);
+    iz = grid_sampler_compute_source_index_set_grad(iz, inp_D, padding_mode, align_corners, &dL_diz_mult, offset.data[n * off_sN], multicell);
 
     // get corner pixel values from (x, y, z)
     // for 4d, we used north-east-south-west
@@ -670,8 +692,8 @@ __global__ void smooth_sampler_backward_backward_kernel(
     scalar_t pos_x_2nd_derivative = 0.0f;
     scalar_t pos_y_2nd_derivative = 0.0f;
     scalar_t pos_z_2nd_derivative = 0.0f;
-    bool apply_smoothstep = true;
-    if (apply_smoothstep) {
+
+    if (kernel_enum==0) {
       pos_x_derivative_ *= cosine_derivative(pos_x_);
       pos_y_derivative_ *= cosine_derivative(pos_y_);
       pos_z_derivative_ *= cosine_derivative(pos_z_);
@@ -687,7 +709,24 @@ __global__ void smooth_sampler_backward_backward_kernel(
       pos_x_ = cosine(pos_x_);
       pos_y_ = cosine(pos_y_);
       pos_z_ = cosine(pos_z_);
-    } 
+    } else if (kernel_enum == 2){
+      pos_x_derivative_ *= smoothstep_derivative(pos_x_);
+      pos_y_derivative_ *= smoothstep_derivative(pos_y_);
+      pos_z_derivative_ *= smoothstep_derivative(pos_z_);
+
+      pos_x_2nd_derivative_ = dL_dix_mult * dL_dix_mult * smoothstep_2nd_derivative(pos_x_);
+      pos_y_2nd_derivative_ = dL_diy_mult * dL_diy_mult * smoothstep_2nd_derivative(pos_y_);
+      pos_z_2nd_derivative_ = dL_diz_mult * dL_diz_mult * smoothstep_2nd_derivative(pos_z_);
+
+      pos_x_2nd_derivative = -pos_x_2nd_derivative_;
+      pos_y_2nd_derivative = -pos_y_2nd_derivative_;
+      pos_z_2nd_derivative = -pos_z_2nd_derivative_;
+
+      pos_x_ = smoothstep(pos_x_);
+      pos_y_ = smoothstep(pos_y_);
+      pos_z_ = smoothstep(pos_z_);
+
+    }
 
     scalar_t pos_x = 1.0f - pos_x_;
     scalar_t pos_y = 1.0f - pos_y_;
@@ -835,7 +874,7 @@ __global__ void smooth_sampler_backward_backward_kernel(
 
 template <typename scalar_t, typename index_t>
 C10_LAUNCH_BOUNDS_1(256)
-__global__ void smooth_sampler_backward_backward_backward_kernel(
+__global__ void cosine_sampler_backward_backward_backward_kernel(
     const index_t nthreads,
     at::cuda::detail::TensorInfo<scalar_t, index_t> grad_input, // initialized to empty
     // at::cuda::detail::TensorInfo<scalar_t, index_t> grad_grid, // initialized to zeros
@@ -850,10 +889,12 @@ __global__ void smooth_sampler_backward_backward_backward_kernel(
     at::cuda::detail::TensorInfo<scalar_t, index_t> offset,     
     const at::native::detail::GridSamplerPadding padding_mode,
     bool align_corners,
-    // bool apply_smoothstep,
+    // bool apply_cosinestep,
     bool input_requires_grad,
     const index_t grad_input_memory_span,
-    const index_t grad_grad_out_memory_span) {
+    const index_t grad_grad_out_memory_span,
+    index_t kernel_enum,
+      const bool multicell) {
   index_t C = input.sizes[1];
   index_t inp_D = input.sizes[2];
   index_t inp_H = input.sizes[3];
@@ -915,9 +956,9 @@ __global__ void smooth_sampler_backward_backward_backward_kernel(
 
     // multipliers for gradients on ix, iy, and iz
     scalar_t dL_dix_mult, dL_diy_mult, dL_diz_mult;
-    ix = grid_sampler_compute_source_index_set_grad(ix, inp_W, padding_mode, align_corners, &dL_dix_mult, offset.data[n * off_sN]);
-    iy = grid_sampler_compute_source_index_set_grad(iy, inp_H, padding_mode, align_corners, &dL_diy_mult, offset.data[n * off_sN]);
-    iz = grid_sampler_compute_source_index_set_grad(iz, inp_D, padding_mode, align_corners, &dL_diz_mult, offset.data[n * off_sN]);
+    ix = grid_sampler_compute_source_index_set_grad(ix, inp_W, padding_mode, align_corners, &dL_dix_mult, offset.data[n * off_sN], multicell);
+    iy = grid_sampler_compute_source_index_set_grad(iy, inp_H, padding_mode, align_corners, &dL_diy_mult, offset.data[n * off_sN], multicell);
+    iz = grid_sampler_compute_source_index_set_grad(iz, inp_D, padding_mode, align_corners, &dL_diz_mult, offset.data[n * off_sN], multicell);
 
     // get corner pixel values from (x, y, z)
     // for 4d, we used north-east-south-west
@@ -933,14 +974,27 @@ __global__ void smooth_sampler_backward_backward_backward_kernel(
     scalar_t dy_bottom = iy_bottom - iy;
     scalar_t dz_back = iz_back - iz;
 
+    scalar_t dx_right_2nd_derivative = 0.0f;
+    scalar_t dy_bottom_2nd_derivative = 0.0f;
+    scalar_t dz_back_2nd_derivative = 0.0f;
 
-    scalar_t dx_right_2nd_derivative =dL_dix_mult * dL_dix_mult * cosine_2nd_derivative(dx_right);
-    scalar_t dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * cosine_2nd_derivative(dy_bottom);
-    scalar_t dz_back_2nd_derivative = dL_diz_mult * dL_diz_mult * cosine_2nd_derivative(dz_back);
+    if (kernel_enum ==0){
+       dx_right_2nd_derivative =dL_dix_mult * dL_dix_mult * cosine_2nd_derivative(dx_right);
+       dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * cosine_2nd_derivative(dy_bottom);
+       dz_back_2nd_derivative = dL_diz_mult * dL_diz_mult * cosine_2nd_derivative(dz_back);
 
-    dx_right = cosine(dx_right);
-    dy_bottom = cosine(dy_bottom);
-    dz_back = cosine(dz_back);
+        dx_right = cosine(dx_right);
+        dy_bottom = cosine(dy_bottom);
+        dz_back = cosine(dz_back);
+    }else if (kernel_enum == 2){
+       dx_right_2nd_derivative =dL_dix_mult * dL_dix_mult * smoothstep_2nd_derivative(dx_right);
+       dy_bottom_2nd_derivative = dL_diy_mult * dL_diy_mult * smoothstep_2nd_derivative(dy_bottom);
+       dz_back_2nd_derivative = dL_diz_mult * dL_diz_mult * smoothstep_2nd_derivative(dz_back);
+
+        dx_right = smoothstep(dx_right);
+        dy_bottom = smoothstep(dy_bottom);
+        dz_back = smoothstep(dz_back);
+    }
 
     scalar_t dx_left = 1.0f - dx_right;
     scalar_t dy_top = 1.0f - dy_bottom;
@@ -1047,19 +1101,19 @@ __global__ void smooth_sampler_backward_backward_backward_kernel(
   }
 }
 
-void launch_smooth_sampler_forward_kernel(
+void launch_cosine_sampler_forward_kernel(
     const torch::TensorBase &output, const torch::TensorBase &input, const torch::TensorBase &grid, const torch::TensorBase &offset,
-    int64_t padding_mode, bool align_corners) {
+    int64_t padding_mode, bool align_corners, int64_t kernel_enum, const bool multicell) {
   auto N = input.size(0);
   auto D = grid.size(1);
   auto H = grid.size(2);
   auto W = grid.size(3);
   int64_t count = N * D * H * W;
   if (count > 0) {
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(input.scalar_type(), "smooth_sampler_cuda", [&] {
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(input.scalar_type(), "cosine_sampler_cuda", [&] {
       if (at::native::canUse32BitIndexMath(input) && at::native::canUse32BitIndexMath(grid) &&
           at::native::canUse32BitIndexMath(output)) {
-        smooth_sampler_kernel<scalar_t>
+        cosine_sampler_kernel<scalar_t>
           <<<at::cuda::detail::GET_BLOCKS(count, 512), 512, 0, at::cuda::getCurrentCUDAStream()>>>(
             static_cast<int>(count),
             at::cuda::detail::getTensorInfo<scalar_t, int>(input),
@@ -1067,10 +1121,12 @@ void launch_smooth_sampler_forward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int>(output),
             at::cuda::detail::getTensorInfo<scalar_t, int>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
-            align_corners);
+            align_corners,
+            static_cast<int>(kernel_enum),
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       } else {
-        smooth_sampler_kernel<scalar_t>
+        cosine_sampler_kernel<scalar_t>
           <<<at::cuda::detail::GET_BLOCKS(count, 512), 512, 0, at::cuda::getCurrentCUDAStream()>>>(
             count,
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(input),
@@ -1078,28 +1134,30 @@ void launch_smooth_sampler_forward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(output),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
-            align_corners);
+            align_corners,
+            kernel_enum,
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }
     });
   }
 }
 
-void launch_smooth_sampler_backward_kernel(
+void launch_cosine_sampler_backward_kernel(
     const torch::TensorBase &grad_input, const torch::TensorBase &grad_grid,
     const torch::TensorBase& grad_output, const torch::TensorBase& input,
     const torch::TensorBase& grid, const torch::TensorBase &offset, int64_t padding_mode,
-    bool align_corners,  bool input_requires_grad) {
+    bool align_corners,  bool input_requires_grad, int64_t kernel_enum, const bool multicell) {
   auto N = input.size(0);
   auto D = grid.size(1);
   auto H = grid.size(2);
   auto W = grid.size(3);
   int64_t count = N * D * H * W;
   if (count > 0) {
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(input.scalar_type(), "smooth_sampler_backward_cuda", [&] {
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(input.scalar_type(), "cosine_sampler_backward_cuda", [&] {
       if (at::native::canUse32BitIndexMath(input) && at::native::canUse32BitIndexMath(grid) &&
           at::native::canUse32BitIndexMath(grad_output)) {
-        smooth_sampler_backward_kernel<scalar_t>
+        cosine_sampler_backward_kernel<scalar_t>
           <<<at::cuda::detail::GET_BLOCKS(count, 256), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
             static_cast<int>(count),
             at::cuda::detail::getTensorInfo<scalar_t, int>(grad_output),
@@ -1111,10 +1169,12 @@ void launch_smooth_sampler_backward_kernel(
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
             /*grad_input_memory_span =*/input_requires_grad ? static_cast<int>(grad_input.numel()) : 0,
-            input_requires_grad);
+            input_requires_grad,
+            static_cast<int>(kernel_enum),
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       } else {
-        smooth_sampler_backward_kernel<scalar_t>
+        cosine_sampler_backward_kernel<scalar_t>
           <<<at::cuda::detail::GET_BLOCKS(count, 256), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
             count,
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(grad_output),
@@ -1126,14 +1186,16 @@ void launch_smooth_sampler_backward_kernel(
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
             /*grad_input_memory_span =*/input_requires_grad ? grad_input.numel() : 0,
-            input_requires_grad);
+            input_requires_grad,
+            kernel_enum,
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }
     });
   }
 }
 
-void launch_smooth_sampler_backward_backward_kernel(
+void launch_cosine_sampler_backward_backward_kernel(
     const torch::TensorBase& grad_input,
     const torch::TensorBase& grad_grid,
     const torch::TensorBase& grad_grad_out,
@@ -1145,18 +1207,20 @@ void launch_smooth_sampler_backward_backward_kernel(
     const torch::TensorBase &offset,
     int64_t padding_mode,
     const bool align_corners,
-    // const bool apply_smoothstep,
-    const bool input_requires_grad) {
+    // const bool apply_cosinestep,
+    const bool input_requires_grad,
+    int64_t kernel_enum,
+    const bool multicell) {
   auto N = input.size(0);
   auto D = grid.size(1);
   auto H = grid.size(2);
   auto W = grid.size(3);
   int64_t count = N * D * H * W;
   if (count > 0) {
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(input.scalar_type(), "smooth_sampler_backward_backward_cuda", [&] {
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(input.scalar_type(), "cosine_sampler_backward_backward_cuda", [&] {
       if (at::native::canUse32BitIndexMath(input) && at::native::canUse32BitIndexMath(grid) && at::native::canUse32BitIndexMath(grad_output)
           && at::native::canUse32BitIndexMath(grad_out_input) && at::native::canUse32BitIndexMath(grad_out_grid)) {
-        smooth_sampler_backward_backward_kernel<scalar_t>
+        cosine_sampler_backward_backward_kernel<scalar_t>
           <<<at::cuda::detail::GET_BLOCKS(count, 256), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
             static_cast<int>(count),
             at::cuda::detail::getTensorInfo<scalar_t, int>(grad_input),
@@ -1170,13 +1234,15 @@ void launch_smooth_sampler_backward_backward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
-            // apply_smoothstep,
+            // apply_cosinestep,
             input_requires_grad,
             static_cast<int>(grad_input.numel()),
-            static_cast<int>(grad_grad_out.numel()));
+            static_cast<int>(grad_grad_out.numel()),
+            static_cast<int>(kernel_enum),
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       } else {
-        smooth_sampler_backward_backward_kernel<scalar_t>
+        cosine_sampler_backward_backward_kernel<scalar_t>
           <<<at::cuda::detail::GET_BLOCKS(count, 256), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
             count,
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(grad_input),
@@ -1190,10 +1256,12 @@ void launch_smooth_sampler_backward_backward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
-            // apply_smoothstep,
+            // apply_cosinestep,
             input_requires_grad,
             grad_input.numel(),
-            grad_grad_out.numel());
+            grad_grad_out.numel(),
+            kernel_enum,
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }
     });
@@ -1201,7 +1269,7 @@ void launch_smooth_sampler_backward_backward_kernel(
 }
 
 
-void launch_smooth_sampler_backward_backward_backward_kernel(
+void launch_cosine_sampler_backward_backward_backward_kernel(
     const torch::TensorBase& grad_input,
     const torch::TensorBase& grad_grad_out,
     const torch::TensorBase& input,
@@ -1212,8 +1280,10 @@ void launch_smooth_sampler_backward_backward_backward_kernel(
     const torch::TensorBase &offset,
     int64_t padding_mode,
     const bool align_corners,
-    // const bool apply_smoothstep,
-    const bool input_requires_grad) {
+    // const bool apply_cosinestep,
+    const bool input_requires_grad,
+    int64_t kernel_enum,
+    const bool multicell) {
   auto N = input.size(0);
   auto D = grid.size(1);
   auto H = grid.size(2);
@@ -1222,9 +1292,9 @@ void launch_smooth_sampler_backward_backward_backward_kernel(
 
     
   if (count > 0) {
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(input.scalar_type(), "smooth_sampler_backward_backward_cuda", [&] {
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(input.scalar_type(), "cosine_sampler_backward_backward_cuda", [&] {
       if (at::native::canUse32BitIndexMath(input) && at::native::canUse32BitIndexMath(grid) && at::native::canUse32BitIndexMath(grad_output)) {
-        smooth_sampler_backward_backward_backward_kernel<scalar_t>
+        cosine_sampler_backward_backward_backward_kernel<scalar_t>
           <<<at::cuda::detail::GET_BLOCKS(count, 256), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
             static_cast<int>(count),
             at::cuda::detail::getTensorInfo<scalar_t, int>(grad_input),
@@ -1240,13 +1310,15 @@ void launch_smooth_sampler_backward_backward_backward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
-            // apply_smoothstep,
+            // apply_cosinestep,
             input_requires_grad,
             static_cast<int>(grad_input.numel()),
-            static_cast<int>(grad_grad_out.numel()));
+            static_cast<int>(grad_grad_out.numel()),
+            static_cast<int>(kernel_enum),
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       } else {
-        smooth_sampler_backward_backward_backward_kernel<scalar_t>
+        cosine_sampler_backward_backward_backward_kernel<scalar_t>
           <<<at::cuda::detail::GET_BLOCKS(count, 256), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
             count,
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(grad_input),
@@ -1262,10 +1334,12 @@ void launch_smooth_sampler_backward_backward_backward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(offset),
             static_cast<at::native::detail::GridSamplerPadding>(padding_mode),
             align_corners,
-            // apply_smoothstep,
+            // apply_cosinestep,
             input_requires_grad,
             grad_input.numel(),
-            grad_grad_out.numel());
+            grad_grad_out.numel(),
+            kernel_enum,
+            multicell);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }
     });
