@@ -37,7 +37,6 @@ void launch_cosine_sampler_backward_backward_backward_kernel(
     const torch::TensorBase& input,
     const torch::TensorBase& grid,
     const torch::TensorBase& gOut,
-    const torch::TensorBase& gOutggOut,
     const torch::TensorBase& gOutGrid,
     const torch::TensorBase& gOutgGrid,
     const torch::TensorBase &offset,
@@ -106,13 +105,12 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> cosine_sampler_backward_
   return std::make_tuple(grad_input, grad_grid, grad_grad_out);
 }
 
-std::tuple<torch::Tensor, torch::Tensor> cosine_sampler_backward_backward_backward(torch::Tensor input, torch::Tensor grid, torch::Tensor gOut, torch::Tensor gOutggOut,
+std::tuple<torch::Tensor, torch::Tensor> cosine_sampler_backward_backward_backward(torch::Tensor input, torch::Tensor grid, torch::Tensor gOut,
                                              torch::Tensor gOutGrid, torch::Tensor gOutgGrid,
                                               torch::Tensor offset, int64_t padding_mode, bool align_corners, bool input_requires_grad, int64_t kernel_enum, bool multicell) {
   CHECK_INPUT(input)
   CHECK_INPUT(grid)
   CHECK_INPUT(gOut)
-  CHECK_INPUT(gOutggOut)
   CHECK_INPUT(gOutgGrid)
   CHECK_INPUT(gOutGrid)
   CHECK_INPUT(offset)
@@ -123,7 +121,7 @@ std::tuple<torch::Tensor, torch::Tensor> cosine_sampler_backward_backward_backwa
 
   
   launch_cosine_sampler_backward_backward_backward_kernel(gInput, ggOut,  input, grid, 
-                                                 gOut, gOutggOut, gOutGrid,gOutgGrid, offset,
+                                                 gOut, gOutGrid,gOutgGrid, offset,
                                                  padding_mode, align_corners, input_requires_grad, kernel_enum, multicell);
   return std::make_tuple(gInput, ggOut);
 }

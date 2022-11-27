@@ -510,9 +510,9 @@ template <typename scalar_t, typename index_t>
 C10_LAUNCH_BOUNDS_1(256)
 __global__ void cosine_sampler_backward_backward_kernel(
     const index_t nthreads,
-    at::cuda::detail::TensorInfo<scalar_t, index_t> gInput, // initialized to empty
-    at::cuda::detail::TensorInfo<scalar_t, index_t> gGrid, // initialized to zeros
-    at::cuda::detail::TensorInfo<scalar_t, index_t> ggOut, // initialized to zeros
+    at::cuda::detail::TensorInfo<scalar_t, index_t> gInput, 
+    at::cuda::detail::TensorInfo<scalar_t, index_t> gGrid, 
+    at::cuda::detail::TensorInfo<scalar_t, index_t> ggOut, 
     at::cuda::detail::TensorInfo<scalar_t, index_t> input,
     at::cuda::detail::TensorInfo<scalar_t, index_t> grid,
     at::cuda::detail::TensorInfo<scalar_t, index_t> gOutInput,
@@ -634,14 +634,12 @@ __global__ void cosine_sampler_backward_backward_kernel(
         int px = (shift >> 0) & 1;  // 0 1 0 1
         int py = (shift >> 1) & 1;  // 0 0 1 1
 
-        surface_coefficients[shift] = pos_corners[px][0] * pos_corners[py][1]; // 
+        surface_coefficients[shift] = pos_corners[px][0] * pos_corners[py][1]; 
         out_derivatives[0][shift] =  pos_corners[py][1] * pos_corners[px][2]; // dOut_dx / surf_weight
         out_derivatives[1][shift] = pos_corners[py][1] * pos_corners[px][4]; // d2Out_dx2 / surf_weight
-        // out_derivatives[2][shift] = pos_corners[py][3] * pos_corners[px][2]; // d2Out_dxdy / surf_weight
 
         out_derivatives[2][shift] = pos_corners[px][0] * pos_corners[py][3]; // dOut_dy / surf_weight
         out_derivatives[3][shift] = pos_corners[px][0] * pos_corners[py][5]; // d2Out_dy2 / surf_weight
-        // out_derivatives[5][shift] = pos_corners[px][2] * pos_corners[py][3]; // d2Out_dydx / surf_weight
         }
 
         scalar_t d2L_dix2 = static_cast<scalar_t>(0), d2L_diy2 = static_cast<scalar_t>(0);
@@ -696,8 +694,6 @@ __global__ void cosine_sampler_backward_backward_kernel(
             if (gOutInput_ptr_NC != NULL) {
                 scalar_t gOutInput = gOutInput_ptr_NC[inp_el];
                 ggOut_delta += gOutInput * surface_coeff; 
-                // d2L_dix2 += dL_dx * gOutInput;
-                // d2L_diy2 += dL_dy * gOutInput;
             }
 
             at::native::fastAtomicAdd(ggOut.data,
@@ -710,7 +706,6 @@ __global__ void cosine_sampler_backward_backward_kernel(
             d2L_diy2 += surf_weight * gOut * (d2Out_dy2 * gOutGrid_y);
 
             
-            // cell로 미분
             add_2d(gInput.data, iy, ix, gInp_sH, gInp_sW, dL_dx * gOutGrid_x + dL_dy * gOutGrid_y, NC_offset_inp, gInput_memory_span);
         }
       }
@@ -728,13 +723,11 @@ template <typename scalar_t, typename index_t>
 C10_LAUNCH_BOUNDS_1(256)
 __global__ void cosine_sampler_backward_backward_backward_kernel(
     const index_t nthreads,
-    at::cuda::detail::TensorInfo<scalar_t, index_t> gInput, // initialized to empty
+    at::cuda::detail::TensorInfo<scalar_t, index_t> gInput, 
     at::cuda::detail::TensorInfo<scalar_t, index_t> ggOut, 
-    // at::cuda::detail::TensorInfo<scalar_t, index_t> gGrid,
     at::cuda::detail::TensorInfo<scalar_t, index_t> input,
     at::cuda::detail::TensorInfo<scalar_t, index_t> grid,
     at::cuda::detail::TensorInfo<scalar_t, index_t> gOut,
-    at::cuda::detail::TensorInfo<scalar_t, index_t> gOutggOut, 
     at::cuda::detail::TensorInfo<scalar_t, index_t> gOutGrid, 
     at::cuda::detail::TensorInfo<scalar_t, index_t> gOutgGrid,
     at::cuda::detail::TensorInfo<scalar_t, index_t> offset,
@@ -766,11 +759,6 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
     index_t gOut_sC = gOut.strides[1];
     index_t gOut_sH = gOut.strides[2];
     index_t gOut_sW = gOut.strides[3];
-
-    index_t gOutggOut_sN = gOutggOut.strides[0];
-    index_t gOutggOut_sC = gOutggOut.strides[1];
-    index_t gOutggOut_sH = gOutggOut.strides[2];
-    index_t gOutggOut_sW = gOutggOut.strides[3];
 
     index_t off_sN = offset.strides[0];
 
@@ -849,9 +837,6 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
         index_t offset_out_DHW =  h * gOut_sH + w * gOut_sW;
         scalar_t *gOut_ptr_NCDHW = gOut.data + n * gOut_sN + offset_out_DHW;
 
-        index_t offset_ggout_DHW =  h * gOutggOut_sH + w * gOutggOut_sW;
-        scalar_t *gOutggOut_ptr_NCDHW = gOutggOut.data + n * gOutggOut_sN + offset_ggout_DHW;
-
         index_t NC_offset_inp = n * gInp_sN;
         index_t NC_offset_out = n * gOut_sN;
         scalar_t *inp_ptr_NC = input.data + n * inp_sN;
@@ -862,9 +847,8 @@ __global__ void cosine_sampler_backward_backward_backward_kernel(
 
         scalar_t *gOutgGrid_ptr_NDHW = gOutgGrid.data +  index * gOutgGrid_sW;
 
-    for (index_t c = 0; c < C; ++c, gOut_ptr_NCDHW += gOut_sC, gOutggOut_ptr_NCDHW += gOutggOut_sC, inp_ptr_NC += inp_sC, NC_offset_inp += gInp_sC, NC_offset_out += gOut_sC) {
+    for (index_t c = 0; c < C; ++c, gOut_ptr_NCDHW += gOut_sC, inp_ptr_NC += inp_sC, NC_offset_inp += gInp_sC, NC_offset_out += gOut_sC) {
         scalar_t gOut = *gOut_ptr_NCDHW;
-        scalar_t gOutggOut_scalar = *gOutggOut_ptr_NCDHW;
 
         #pragma unroll
         for (int shift = 0; shift < 4; shift++) { 
@@ -1077,7 +1061,6 @@ void launch_cosine_sampler_backward_backward_backward_kernel(
     const torch::TensorBase& input,
     const torch::TensorBase& grid,
     const torch::TensorBase& gOut,
-    const torch::TensorBase& gOutggOut,
     const torch::TensorBase& gOutGrid, 
     const torch::TensorBase& gOutgGrid,
     const torch::TensorBase &offset,
@@ -1101,7 +1084,6 @@ void launch_cosine_sampler_backward_backward_backward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int>(input),
             at::cuda::detail::getTensorInfo<scalar_t, int>(grid),
             at::cuda::detail::getTensorInfo<scalar_t, int>(gOut),
-            at::cuda::detail::getTensorInfo<scalar_t, int>(gOutggOut),
             at::cuda::detail::getTensorInfo<scalar_t, int>(gOutGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int>(gOutgGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int>(offset),
@@ -1122,7 +1104,6 @@ void launch_cosine_sampler_backward_backward_backward_kernel(
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(input),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(grid),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOut),
-            at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutggOut),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(gOutgGrid),
             at::cuda::detail::getTensorInfo<scalar_t, int64_t>(offset),
