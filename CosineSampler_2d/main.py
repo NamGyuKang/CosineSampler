@@ -2,7 +2,7 @@ import torch
 from torch.utils.cpp_extension import load
 import os
 
-# import grid_sample_temp
+# import grid_sampler
 # import time
 
 

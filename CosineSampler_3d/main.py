@@ -1,6 +1,6 @@
 import torch
 from torch.utils.cpp_extension import load
-# import grid_sample_temp
+# import grid_sampler
 # import os
 # import numpy as np
 # import time
@@ -124,7 +124,7 @@ class CosineSamplerBackwardBackward(torch.autograd.Function):
 #             # # CosineSampler forward vs native forward
 #             # out1 = CosineSampler.apply(input, grid, padding_mode, align_corners, True)
 #             # # out2 = torch.nn.functional.grid_sample(input, grid, padding_mode=padding_mode, align_corners=align_corners)
-#             # out3 = grid_sample_temp.grid_sample_3d(input, grid, step='Cosinestep', offset=False).unsqueeze(2)
+#             # out3 = grid_sampler.grid_sample_3d(input, grid, step='Cosinestep', offset=False).unsqueeze(2)
 #             # # print(out1.shape, out3.shape)
 #             # # print(np.testing.assert_allclose(out1.reshape(-1).detach().cpu().numpy(), out3.reshape(-1).detach().cpu().numpy(), rtol=1e-4, atol=0))
 #             # # assert torch.allclose(out1, out3)
@@ -439,13 +439,13 @@ class CosineSamplerBackwardBackward(torch.autograd.Function):
 #             # grid = torch.cat([z, y, x], -1)
 #             # grid = grid.unsqueeze(0).unsqueeze(0).repeat([n_cell, 1, 1, 1])
 #             start = time.time()
-#             val = grid_sample_temp.grid_sample_3d(cells, grid, step='cosine', offset=False).unsqueeze(2)
+#             val = grid_sampler.grid_sample_3d(cells, grid, step='cosine', offset=False).unsqueeze(2)
 #             end = time.time()
 #             print("pytorch: ", end - start)
-#             # val = grid_sample_temp.grid_sample_3d(cells, grid, step=step, offset=False).unsqueeze(2)
+#             # val = grid_sampler.grid_sample_3d(cells, grid, step=step, offset=False).unsqueeze(2)
 #             print(val.shape, 'val shape')
             
-#             # val = grid_sample_temp.grid_sample_2d(cells, grid, step='cosine', offset=off)
+#             # val = grid_sampler.grid_sample_2d(cells, grid, step='cosine', offset=off)
 #             val = val.to("cpu")
 #             # val = torch.tanh(val)
 #             # val = torch.tanh(val)

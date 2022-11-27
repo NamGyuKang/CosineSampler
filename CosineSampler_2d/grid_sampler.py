@@ -88,8 +88,7 @@ def grid_sample_2d(input, grid, step='cosine', offset=True):
     
     return out_val 
 
-
-def grid_sample_3d(input, grid, step='cosine', offset=False, end_modify=False):
+def grid_sample_3d(input, grid, step='cosine', offset=True):
     '''
     Args:
         input : A torch.Tensor of dimension (N, C, IH, IW).
@@ -98,7 +97,9 @@ def grid_sample_3d(input, grid, step='cosine', offset=False, end_modify=False):
         torch.Tensor: The bilinearly interpolated values (N, H, W, 2).
     '''
     N, C, IT, IH, IW = input.shape
-    grid = grid.view(N, 1, grid.shape[2], grid.shape[-1])
+    # grid = grid.repeat([N, 1, 1,1,1])
+
+    grid = grid.view(N, 1, grid.shape[-2], grid.shape[-1])
     _, H, W, _ = grid.shape
     if step=='trilinear':
         step_f = lambda x: x
@@ -115,31 +116,17 @@ def grid_sample_3d(input, grid, step='cosine', offset=False, end_modify=False):
     it = grid[..., 0]
     ix = grid[..., 1]
     iy = grid[..., 2]
-   
-    if offset:
-        offset = torch.linspace(0,(1-(1/(N))),N).reshape(N,1,1)
-    else:
-        offset = 0.0
 
-    if end_modify:
-        idx_t = torch.where(it == it[0,0,:].max())
-        idx_x = torch.where(ix == ix[0,0,:].max())
-        idx_y = torch.where(iy == iy[0,0,:].max())    
-        it[idx_t[0], idx_t[1], idx_t[2]] -= 1e-7
-        ix[idx_x[0], idx_x[1], idx_x[2]] -= 1e-7
-        iy[idx_y[0], idx_y[1], idx_y[2]] -= 1e-7
-        it = ((it+1)/2)*(IT-1) + offset
-        ix = ((ix+1)/2)*(IW-1) + offset
-        iy = ((iy+1)/2)*(IH-1) + offset
+    if offset:
+        offset = torch.linspace(0,(1-(1/(N))),N).reshape(N,1,1).to('cuda')
+        it = ((it+1)/2)*(IT-2) + offset
+        ix = ((ix+1)/2)*(IW-2) + offset
+        iy = ((iy+1)/2)*(IH-2) + offset
     else:
-        if offset:
-            it = ((it+1)/2)*(IT-2) + offset
-            ix = ((ix+1)/2)*(IW-2) + offset
-            iy = ((iy+1)/2)*(IH-2) + offset
-        else:
-            it = ((it+1)/2)*(IT-1)
-            ix = ((ix+1)/2)*(IW-1)
-            iy = ((iy+1)/2)*(IH-1)
+        it = ((it+1)/2)*(IT-1)
+        ix = ((ix+1)/2)*(IW-1)
+        iy = ((iy+1)/2)*(IH-1)
+    
 
 
     with torch.no_grad():
@@ -250,5 +237,3 @@ def grid_sample_3d(input, grid, step='cosine', offset=False, end_modify=False):
                (sw_back_val.view(N, C, H, W) * sw_back.view(N, 1, H, W)) +
                (se_back_val.view(N, C, H, W) * se_back.view(N, 1, H, W))) 
     return out_val
-
-
