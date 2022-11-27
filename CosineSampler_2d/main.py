@@ -17,7 +17,7 @@ def kernel_enum(kernel):
     elif kernel == 'smooth-step':
         return 2
 
-class CosineSampler(torch.autograd.Function):
+class CosineSampler2d(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, grid, padding_mode='zeros', align_corners = True, kernel = 'cosine', multicell = True):
         ''' offset merge kernel'''
