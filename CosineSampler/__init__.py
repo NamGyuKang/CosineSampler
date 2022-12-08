@@ -1,2 +1,0 @@
-import CosineSampler.cosine_sampler_2d
-import CosineSampler.cosine_sampler_3d
