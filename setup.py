@@ -4,15 +4,15 @@ from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 
 setup(
-    name                = 'cosine_sampler',
+    name                = 'CosineSampler',
     version             = '0.0.1',
     description         = 'Triple backward custom CUDA kernel for interpolation',
     author              = 'Namgyu Kang',
     author_email        = 'kangnamgyu27@gmail.com',
     url                 = 'https://github.com/NamGyuKang/CosineSampler',
-    ext_modules=[CUDAExtension('cosine_sampler_2d._cosine', ['cosine_sampler_2d/csrc/cosine_sampler_2d_kernel.cu', 'cosine_sampler_2d/csrc/cosine_sampler_2d.cpp']), 
-                    CUDAExtension('cosine_sampler_3d._cosine', ['cosine_sampler_3d/csrc/cosine_sampler_3d_kernel.cu', 'cosine_sampler_3d/csrc/cosine_sampler_3d.cpp'])],
-    packages=['cosine_sampler_2d', 'cosine_sampler_3d'],
+    ext_modules=[CUDAExtension('CosineSampler._cosine_2d', ['CosineSampler/cosine_sampler_2d/csrc/cosine_sampler_2d_kernel.cu', 'CosineSampler/cosine_sampler_2d/csrc/cosine_sampler_2d.cpp']), 
+                    CUDAExtension('CosineSampler._cosine_3d', ['CosineSampler/cosine_sampler_3d/csrc/cosine_sampler_3d_kernel.cu', 'CosineSampler/cosine_sampler_3d/csrc/cosine_sampler_3d.cpp'])],
+    packages=['CosineSampler'],
     cmdclass={'build_ext': BuildExtension},
     keywords            = ['triple backward interpolation'],
     python_requires     = '>=3',

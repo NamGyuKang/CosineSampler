@@ -1,1 +1,0 @@
-from cosine_sampler_3d.modules import CosineSampler3d
