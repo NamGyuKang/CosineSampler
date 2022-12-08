@@ -1,1 +1,1 @@
-from cosine_sampler_3d import CosineSampler3d
+from CosineSmapler.CosineSampler_3d import CosineSampler3d
