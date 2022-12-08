@@ -26,29 +26,3 @@ setup(
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
         ],
 )
-
-
-setup(
-    name                = 'cosine_sampler_3d',
-    version             = '0.0.1',
-    description         = 'Triple backward custom CUDA kernel for 3D interpolation',
-    author              = 'Namgyu Kang',
-    author_email        = 'kangnamgyu27@gmail.com',
-    url                 = 'https://github.com/NamGyuKang/CosineSampler',
-    ext_modules=[],
-    packages=['cosine_sampler_3d'],
-    cmdclass={'build_ext': BuildExtension},
-    keywords            = ['triple backward 3D interpolation'],
-    python_requires     = '>=3',
-    classifiers         = [
-        "Environment :: GPU :: NVIDIA CUDA",
-        "Topic :: Utilities",
-        "License :: OSI Approved :: BSD License",
-        "Programming Language :: C++",
-		"Programming Language :: CUDA",
-		"Programming Language :: Python :: 3 :: Only",    
-        "Topic :: Scientific/Engineering :: Artificial Intelligence",
-        ],
-)
-
-
