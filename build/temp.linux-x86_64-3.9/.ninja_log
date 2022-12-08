@@ -1,0 +1,5 @@
+# ninja log v5
+1	14250	1670499453676358272	/hdd/kng/CosineSampler/build/temp.linux-x86_64-3.9/CosineSmapler/CosineSampler_2d/csrc/cosine_sampler_2d.o	a09bf11e0070fea9
+1	50581	1670499490000656852	/hdd/kng/CosineSampler/build/temp.linux-x86_64-3.9/CosineSmapler/CosineSampler_2d/csrc/cosine_sampler_2d_kernel.o	2c9f2e20ec5e507b
+2	14512	1670499505156781491	/hdd/kng/CosineSampler/build/temp.linux-x86_64-3.9/CosineSmapler/CosineSampler_3d/csrc/cosine_sampler_3d.o	1169305c33dd9a09
+2	54915	1670499545553113853	/hdd/kng/CosineSampler/build/temp.linux-x86_64-3.9/CosineSmapler/CosineSampler_3d/csrc/cosine_sampler_3d_kernel.o	e3fa98f3e7e433e5
