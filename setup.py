@@ -1,5 +1,5 @@
 import torch
-from setuptools import setup
+from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 setup(
@@ -22,4 +22,5 @@ setup(
 		"Programming Language :: Python :: 3 :: Only",    
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
         ],
+    packages= find_packages(),
 )
