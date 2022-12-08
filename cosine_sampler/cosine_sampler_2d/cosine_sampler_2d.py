@@ -1,10 +1,10 @@
 import torch
-from CosineSampler import cosine_sampler_3D
+from cosine_sampler import cosine_sampler_2D
 
 def padding_mode_enum(padding_mode):
-    if padding_mode == "zeros":
+    if padding_mode == 'zeros':
         return 0
-    elif padding_mode == "border":
+    elif padding_mode == 'border':
         return 1
     else:  # padding_mode == 'reflection'
         return 2
@@ -12,51 +12,53 @@ def padding_mode_enum(padding_mode):
 def kernel_enum(kernel):
     if kernel == 'cosine':
         return 0
-    elif kernel == 'trilinear':
+    elif kernel == 'bilinear':
         return 1
     elif kernel == 'smooth-step':
         return 2
 
-class CosineSampler3d(torch.autograd.Function):
+class CosineSampler2d(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, grid, padding_mode="zeros", align_corners=True, kernel='cosine', multicell = True):
+    def forward(ctx, input, grid, padding_mode='zeros', align_corners = True, kernel = 'cosine', multicell = True):
+        ''' offset merge kernel'''
         if multicell:
-            ctx.offset  =torch.linspace(0, 1-(1/input.shape[0]), input.shape[0]).to('cuda')    
+            ctx.offset  =torch.linspace(0, 1-(1/input.shape[0]), input.shape[0]).to('cuda')
         else:
-            ctx.offset = torch.zeros(input.shape[0]).to('cuda')   
-
-        output = cosine_sampler_3D.forward(input, grid, ctx.offset, padding_mode_enum(padding_mode), align_corners, kernel_enum(kernel), multicell)
-        ctx.save_for_backward(input, grid)
-        
-        ctx.align_corners = align_corners
+            ctx.offset = torch.zeros(input.shape[0]).to('cuda')    
         ctx.padding_mode = padding_mode
+        output = cosine_sampler_2D.forward(input, grid, ctx.offset, padding_mode_enum(padding_mode=padding_mode), align_corners, kernel_enum(kernel), multicell)
+        ctx.save_for_backward(input, grid)
+        ctx.align_corners = align_corners
         ctx.kernel = kernel
         ctx.multicell = multicell
+
         return output
 
     @staticmethod
-    def backward(ctx, grad_out):
+    def backward(ctx, gradOut):
+        
         input, grid = ctx.saved_tensors
         
-        if (grad_out == 0.).all().item():
-            return torch.zeros_like(input), torch.zeros_like(grid), None, None, None, None, None
-         
-        d_input, d_grid = CosineSamplerBackward.apply(input, grid, grad_out.contiguous(), ctx.offset, ctx.padding_mode, ctx.align_corners, ctx.kernel, ctx.multicell) 
+        d_input, d_grid = CosineSamplerBackward.apply(input, grid, gradOut.contiguous(), ctx.offset, ctx.padding_mode, ctx.align_corners, ctx.kernel, ctx.multicell)
+
         return d_input, d_grid, None, None, None, None
+
 
 class CosineSamplerBackward(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, grid, grad_out, offset, padding_mode="zeros", align_corners=True, kernel = 'cosine', multicell = True):
+    def forward(ctx, input, grid, gOut, offset, padding_mode="zeros", align_corners=True, kernel = 'cosine', multicell = True):
         ctx.align_corners = align_corners
         ctx.padding_mode = padding_mode
         ctx.offset = offset
         ctx.kernel = kernel
         ctx.multicell = multicell
-        grad_input, grad_grid = cosine_sampler_3D.backward(grad_out, input, grid, offset, padding_mode_enum(padding_mode),
-                                            ctx.align_corners, input.requires_grad, kernel_enum(kernel), multicell)
-        ctx.save_for_backward(input, grid, grad_out)
+
+        gInput, gGrid = cosine_sampler_2D.backward(gOut, input, grid, offset, padding_mode_enum(padding_mode),
+                                            ctx.align_corners, input.requires_grad, kernel_enum(kernel), multicell) 
         
-        return grad_input, grad_grid
+        ctx.save_for_backward(input, grid, gOut)
+
+        return gInput, gGrid
 
     @staticmethod
     def backward(ctx, gOutInput, gOutGrid):
@@ -66,7 +68,7 @@ class CosineSamplerBackward(torch.autograd.Function):
 
 
         return gInput, gGrid, ggOut, None, None, None, None, None
-    
+
 class CosineSamplerBackwardBackward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, grid, gOut, gOutInput, gOutGrid, offset, padding_mode="zeros", align_corners=True, kernel = 'cosine', multicell = True):
@@ -77,9 +79,10 @@ class CosineSamplerBackwardBackward(torch.autograd.Function):
         ctx.kernel = kernel
         ctx.multicell = multicell
 
+        
         input_requires_grad = gOutInput is not None and (gOutInput != 0.).any().item()
-
-        gInput, gGrid, ggOut = cosine_sampler_3D.backward_backward(gOutInput, gOutGrid, input, grid, gOut, offset,
+        
+        gInput, gGrid, ggOut = cosine_sampler_2D.backward_backward(gOutInput, gOutGrid, input, grid, gOut, offset,
                                                                     padding_mode_enum(padding_mode), align_corners, input_requires_grad, kernel_enum(kernel), multicell)
         ctx.save_for_backward(input, grid, gOut, gOutGrid)
         
@@ -91,8 +94,10 @@ class CosineSamplerBackwardBackward(torch.autograd.Function):
         padding_mode = ctx.padding_mode
         input, grid, gOut, gOutGrid,  = ctx.saved_tensors 
         
+
         input_requires_grad = gOutgInput is not None and (gOutgInput != 0.).any().item()
-        gInput, ggOut = cosine_sampler_3D.backward_backward_backward(input, grid, gOut, gOutGrid, gOutgGrid.contiguous(), ctx.offset,
+        
+        gInput, ggOut = cosine_sampler_2D.backward_backward_backward(input, grid, gOut, gOutGrid, gOutgGrid.contiguous(), ctx.offset,
                                                                     padding_mode_enum(padding_mode), align_corners, input_requires_grad, kernel_enum(ctx.kernel), ctx.multicell) 
 
         b_input, _, _ = CosineSamplerBackwardBackward.apply(input, grid, gOutggOut.contiguous(), torch.ones_like(gOutgInput), gOutGrid, ctx.offset, padding_mode, align_corners, ctx.kernel, ctx.multicell)
