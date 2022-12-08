@@ -4,7 +4,7 @@ from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 
 setup(
-    # name                = 'cosine_sampler',
+    name                = 'cosine_sampler',
     version             = '0.0.1',
     description         = 'Triple backward custom CUDA kernel for interpolation',
     author              = 'Namgyu Kang',
