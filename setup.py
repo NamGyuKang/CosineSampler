@@ -1,3 +1,4 @@
+import torch
 from setuptools import setup
 from torch.utils import cpp_extension
 
@@ -9,7 +10,8 @@ setup(
     author_email        = 'kangnamgyu27@gmail.com',
     url                 = 'https://github.com/NamGyuKang/CosineSampler',
     download_url        = 'https://github.com/NamGyuKang/CosineSampler.git',
-    ext_modules=[cpp_extension.CUDAExtension('CosineSampler.cosine_sampler_2D', ['CosineSmapler/csrc/cosine_sampler_2d_kernel.cu', 'CosineSmapler/csrc/cosine_sampler_2d.cpp'])],
+    ext_modules=[cpp_extension.CUDAExtension('CosineSampler.cosine_sampler_2D', ['CosineSmapler/CosineSampler_2d/csrc/cosine_sampler_2d_kernel.cu', 'CosineSmapler/CosineSampler_2d/csrc/cosine_sampler_2d.cpp']),
+                cpp_extension.CUDAExtension('CosineSampler.cosine_sampler_3D', ['CosineSmapler/CosineSampler_3d/csrc/cosine_sampler_3d_kernel.cu', 'CosineSmapler/CosineSampler_3d/csrc/cosine_sampler_3d.cpp'])],
     cmdclass={'build_ext': cpp_extension.BuildExtension},
     keywords            = ['triple backward interpolation'],
     python_requires     = '>=3',
