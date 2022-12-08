@@ -1,5 +1,5 @@
 import torch
-from CosineSampler import _cosine_2d
+from CosineSampler.cosine_sampler_2d import _cosine_2d
 
 def padding_mode_enum(padding_mode):
     if padding_mode == 'zeros':
