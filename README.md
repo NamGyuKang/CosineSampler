@@ -21,7 +21,7 @@ Second-order PDE (Helmholtz equation)
 <img width="100%" src="https://user-images.githubusercontent.com/70684829/206615560-77b358ff-59d7-4ef8-af99-48312514c1ab.png"/>
 
 # Citation
-If you use this code in your research, please consider citing:
+If you use this code for research, please consider citing:
 
 ```
 @article{kang2023pixel,
