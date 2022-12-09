@@ -11,7 +11,7 @@ pip install git+https://github.com/NamGyuKang/CosineSampler.git
 ## Usage
 
 You can choose the kernel (cosine, linear, smoothstep), and the offset (True, False).
-The offset is used in [PIXEL](https://github.com/NamGyuKang/PIXEL), and if you set the offset False, and linear kernel,
+The offset is used in [PIXEL (Physics-Informed Cell Representation)](https://github.com/NamGyuKang/PIXEL), and if you set the offset False, and linear kernel,
 it is the same with Pytorch grid_sample and our CosineSampler support triple backpropagation of kernel.
 
 ## Compare CUDA with Pytorch
