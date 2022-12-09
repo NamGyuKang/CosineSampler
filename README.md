@@ -16,7 +16,7 @@ it is the same with Pytorch grid_sample and our CosineSampler support triple bac
 
 ## Compare CUDA with Pytorch
 
-<img width="90%" src="https://user-images.githubusercontent.com/70684829/206614851-86fc3382-f30c-4305-acea-b4b087cd3a5b.png"/>
+<img width="100%" src="https://user-images.githubusercontent.com/70684829/206615560-77b358ff-59d7-4ef8-af99-48312514c1ab.png"/>
 
 # Citation
 If you use this code in your research, please consider citing:
