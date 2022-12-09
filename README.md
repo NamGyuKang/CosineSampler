@@ -15,7 +15,7 @@ The offset is used in [PIXEL (Physics-Informed Cell Representation)](https://git
 it is the same with Pytorch grid_sample and our CosineSampler support triple backpropagation of kernel.
 
 ## Compare CUDA with Pytorch
-
+Second-order Helmholtz equation
 <img width="100%" src="https://user-images.githubusercontent.com/70684829/206615560-77b358ff-59d7-4ef8-af99-48312514c1ab.png"/>
 
 # Citation
