@@ -1,8 +1,10 @@
 # CosineSampler
 
+#### We implemented the 2D, and 3D customized CUDA kernel of the triple backward grid sampler that supports cosine, linear, and smoothstep kernel [(Thomas Müller)](https://nvlabs.github.io/instant-ngp/) and third-order gradients $u_{xxc}, u_{yyc}$ with second-order gradients [(Tymoteusz Bleja)](https://github.com/tymoteuszb/smooth-sampler.git). As a result, the runtime and the memory requirement were significantly reduced. You can find our customized CUDA kernel code at https://github.com/NamGyuKang/CosineSampler.
+
 ## Installation
 
-On Python3 environment with Pytorch >=1.11 CUDA installation run:
+The code is tested with Python3 environment (3.8, 3.9) and PyTorch (1.11, 11.2) with CUDA (>=11.3).
 
 ```bash
 pip install git+https://github.com/NamGyuKang/CosineSampler.git
