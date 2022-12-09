@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import os
 import grid_sampler
-from cosine_sampler_2d import CosineSampler3d
+from cosine_sampler_3d import CosineSampler3d
 
 
     
@@ -31,7 +31,7 @@ if __name__ == "__main__":
     grid = torch.cat([z, y, x], -1)
     grid = grid.unsqueeze(0).unsqueeze(0).unsqueeze(0).repeat([n_cell, 1, 1, 1, 1])
 
-    val2 = CosineSampler3d.apply(cells, grid, padding_mode, align_corners, 'cosine', False)
+    val2 = CosineSampler3d.apply(cells, grid, padding_mode, align_corners, 'cosine', True)
     
     net= []
     net.append(torch.nn.Linear(4, 16))
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     )[0]
 
 
-    val = grid_sampler.grid_sample_3d(cells, grid, step='cosine', offset=False).unsqueeze(2)
+    val = grid_sampler.grid_sample_3d(cells, grid, step='cosine', offset=True).unsqueeze(2)
     val = val.to("cpu")
     val = val.sum(0).view(cell_dim,-1).t()
     val = net(val)

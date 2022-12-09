@@ -26,6 +26,7 @@ if __name__ == '__main__':
     cells = torch.nn.Parameter(torch.rand([n_cell, cell_dim, 16, 16], device = 'cuda')).requires_grad_(True)
     
     yx = np.random.rand(numb, 2)
+    yx[..., 1] = yx[..., 1]*2-1
     yx_f = torch.tensor(yx, requires_grad=True).float()
     y = yx_f[:, 0:1]
     x = yx_f[:, 1:2]
@@ -36,7 +37,7 @@ if __name__ == '__main__':
 
     grid = grid.unsqueeze(0).unsqueeze(0).repeat([n_cell, 1, 1, 1])
     
-    val2 = CosineSampler2d.apply(cells, grid, padding_mode, align_corners, 'bilinear', False)
+    val2 = CosineSampler2d.apply(cells, grid, padding_mode, align_corners, 'cosine', True)
 
     net= []
     net.append(torch.nn.Linear(cell_dim, 16))
@@ -126,7 +127,7 @@ if __name__ == '__main__':
     )[0]
 
     
-    val = grid_sampler.grid_sample_2d(cells, grid, step='bilinear', offset=False) 
+    val = grid_sampler.grid_sample_2d(cells, grid, step='cosine', offset=True) 
     val = val.to("cpu")
     val = val.sum(0).view(cell_dim,-1).t()
     val = net(val)
