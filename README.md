@@ -14,6 +14,9 @@ You can choose the kernel (cosine, linear, smoothstep), and the offset (True, Fa
 The offset is used in [PIXEL](https://github.com/NamGyuKang/PIXEL), and if you set the offset False, and linear kernel,
 it is the same with Pytorch grid_sample and our CosineSampler support triple backpropagation of kernel.
 
+## Compare CUDA with Pytorch
+
+[Helmoltz Eq (2D)](https://user-images.githubusercontent.com/70684829/206614851-86fc3382-f30c-4305-acea-b4b087cd3a5b.png)
 
 # Citation
 If you use this code in your research, please consider citing:
