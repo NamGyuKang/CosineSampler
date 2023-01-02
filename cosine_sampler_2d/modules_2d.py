@@ -63,8 +63,12 @@ class CosineSamplerBackward(torch.autograd.Function):
     @staticmethod
     def backward(ctx, gOutInput, gOutGrid):
         input, grid, gOut = ctx.saved_tensors
-
-        gInput, gGrid, ggOut = CosineSamplerBackwardBackward.apply(input, grid, gOut, gOutInput.contiguous(), gOutGrid.contiguous(), ctx.offset, ctx.padding_mode, ctx.align_corners, ctx.kernel, ctx.multicell)
+        if gOutInput != None:
+            gOutInput = gOutInput.contiguous()
+        if gOutGrid != None:
+            gOutGrid = gOutGrid.contiguous()
+        
+        gInput, gGrid, ggOut = CosineSamplerBackwardBackward.apply(input, grid, gOut, gOutInput, gOutGrid, ctx.offset, ctx.padding_mode, ctx.align_corners, ctx.kernel, ctx.multicell)
 
 
         return gInput, gGrid, ggOut, None, None, None, None, None
