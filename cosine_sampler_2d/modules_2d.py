@@ -85,6 +85,8 @@ class CosineSamplerBackwardBackward(torch.autograd.Function):
 
         
         input_requires_grad = gOutInput is not None and (gOutInput != 0.).any().item()
+        if input_requires_grad == False:
+            gOutInput = torch.zeros(1)
         
         gInput, gGrid, ggOut = _cosine_2d.backward_backward(gOutInput, gOutGrid, input, grid, gOut, offset,
                                                                     padding_mode_enum(padding_mode), align_corners, input_requires_grad, kernel_enum(kernel), multicell)
