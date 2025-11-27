@@ -4,11 +4,21 @@
 
 ## Installation
 
-The code is tested with Python3 environment (3.8, 3.9) and PyTorch (1.11, 11.2) with CUDA (>=11.3).
+The code is tested with Python3 environment (3.8, 3.9, 3.10) and PyTorch (1.11, 1.12, 2.7.1) with CUDA (11.3, 11.8).
+Please make sure PyTorch is installed before installing CosineSampler.
+Please run the following command to install it.
+
+```bash
+pip install . --no-build-isolation
+```
+
+or
 
 ```bash
 pip install git+https://github.com/NamGyuKang/CosineSampler.git
 ```
+
+Please make sure that ninja-build and gcc are installed. Errors may occur otherwise.
 
 ## Usage
 

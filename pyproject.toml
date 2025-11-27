@@ -1,0 +1,28 @@
+[build-system]
+requires = [
+    "setuptools>=61.0",
+    "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "CosineSampler"
+version = "0.0.1"
+description = "Triple backward custom CUDA kernel for interpolation"
+readme = "README.md"
+requires-python = ">=3"
+authors = [
+    { name = "Namgyu Kang", email = "kangnamgyu27@gmail.com" }
+]
+license = { text = "BSD License" }
+keywords = ["triple backward interpolation", "CUDA", "interpolation", "torch", "grid sampler", "cosine kernel"]
+
+classifiers = [
+    "Environment :: GPU :: NVIDIA CUDA",
+        "Topic :: Utilities",
+        "License :: OSI Approved :: BSD License",
+        "Programming Language :: C++",
+		"Programming Language :: CUDA",
+		"Programming Language :: Python :: 3 :: Only",    
+        "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    ]
